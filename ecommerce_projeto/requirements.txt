@@ -1,0 +1,12 @@
+Django>=5.0,<6.0
+Pillow>=10.0
+
+# Driver de conexao com o PostgreSQL
+psycopg2-binary>=2.9
+
+# Servidor de aplicacao WSGI usado em producao (em vez do runserver)
+gunicorn>=22.0
+
+# Serve arquivos estaticos (CSS/JS) diretamente pelo Django/Gunicorn,
+# sem precisar de um servidor separado (Nginx) para isso.
+whitenoise>=6.6

@@ -1,0 +1,47 @@
+{% extends 'loja/base.html' %}
+
+{% block titulo %}Produtos{% endblock %}
+
+{% block conteudo %}
+<h1 class="mb-4">Nossos Produtos</h1>
+
+<div class="row row-cols-1 row-cols-md-3 g-4">
+    {% for produto in produtos %}
+        <div class="col">
+            <div class="card h-100 shadow-sm">
+                {% if produto.imagem %}
+                    <img src="{{ produto.imagem.url }}" class="card-img-top" alt="{{ produto.nome }}">
+                {% endif %}
+                <div class="card-body d-flex flex-column">
+                    <h5 class="card-title">{{ produto.nome }}</h5>
+                    <p class="card-text text-muted small">Vendido por {{ produto.vendedor.nome }}</p>
+                    <p class="card-text">{{ produto.descricao|truncatewords:20 }}</p>
+
+                    <p class="fw-bold fs-5">R$ {{ produto.preco }}</p>
+
+                    {% if produto.estoque > 0 %}
+                        <p class="text-success small">Em estoque: {{ produto.estoque }} un.</p>
+
+                        <!-- Formulário que envia POST para adicionar ao carrinho -->
+                        <form
+                            action="{% url 'loja:adicionar_ao_carrinho' produto.id %}"
+                            method="post"
+                            class="mt-auto d-flex gap-2"
+                        >
+                            {% csrf_token %}
+                            {{ form_quantidade.quantidade }}
+                            <button type="submit" class="btn btn-primary flex-grow-1">
+                                Adicionar ao carrinho
+                            </button>
+                        </form>
+                    {% else %}
+                        <p class="text-danger small mt-auto">Sem estoque no momento.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% empty %}
+        <p>Nenhum produto disponível no momento.</p>
+    {% endfor %}
+</div>
+{% endblock %}

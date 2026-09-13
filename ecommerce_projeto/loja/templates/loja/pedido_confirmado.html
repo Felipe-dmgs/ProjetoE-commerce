@@ -1,0 +1,22 @@
+{% extends 'loja/base.html' %}
+
+{% block titulo %}Pedido confirmado{% endblock %}
+
+{% block conteudo %}
+<div class="alert alert-success">
+    Pedido <strong>#{{ pedido.id }}</strong> confirmado com sucesso! Obrigado, {{ pedido.cliente_nome }}.
+</div>
+
+<h5>Resumo</h5>
+<ul class="list-group mb-3">
+    {% for item in itens %}
+        <li class="list-group-item d-flex justify-content-between">
+            {{ item.quantidade }}x {{ item.produto.nome }}
+            <span>R$ {{ item.subtotal }}</span>
+        </li>
+    {% endfor %}
+</ul>
+<p class="fw-bold fs-5">Total pago: R$ {{ total }}</p>
+
+<a href="{% url 'loja:lista_produtos' %}" class="btn btn-primary">Voltar à loja</a>
+{% endblock %}

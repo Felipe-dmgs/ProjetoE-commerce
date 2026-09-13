@@ -1,0 +1,77 @@
+# docker-compose.yml
+# -------------------
+# Sobe DOIS containers:
+#   1. "db"  -> banco de dados PostgreSQL
+#   2. "web" -> nosso projeto Django, servido pelo Gunicorn (construído a
+#               partir do Dockerfile deste mesmo diretório)
+#
+# O container "web" só INICIA depois que o "db" estiver com healthcheck
+# "healthy" (veja "depends_on" lá embaixo) — isso evita que o Django tente
+# se conectar a um Postgres que ainda está inicializando.
+
+services:
+
+  # ------------------------------------------------------------------
+  # BANCO DE DADOS
+  # ------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: ecommerce_db
+    restart: unless-stopped
+    environment:
+      # Estas variáveis são lidas pela PRÓPRIA imagem oficial do Postgres
+      # para criar o banco/usuário na primeira vez que o container sobe.
+      POSTGRES_DB: ${DATABASE_NAME:-ecommerce}
+      POSTGRES_USER: ${DATABASE_USER:-ecommerce}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-ecommerce}
+    volumes:
+      # Persiste os dados do banco em um "volume" do Docker, para que eles
+      # NÃO sejam perdidos toda vez que o container for recriado.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready é um utilitário que já vem dentro da imagem do Postgres,
+      # feito exatamente para checar se o banco já está aceitando conexões.
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-ecommerce} -d ${DATABASE_NAME:-ecommerce}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ------------------------------------------------------------------
+  # APLICAÇÃO DJANGO (via Gunicorn)
+  # ------------------------------------------------------------------
+  web:
+    build: .              # constrói a imagem a partir do Dockerfile desta pasta
+    container_name: ecommerce_web
+    restart: unless-stopped
+    env_file:
+      - .env               # variáveis sensíveis/config (veja .env.example)
+    environment:
+      # Nome do serviço acima ("db") funciona como hostname dentro da rede
+      # interna que o Compose cria automaticamente entre os containers.
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+    ports:
+      - "8000:8000"        # porta_da_sua_maquina:porta_do_container
+    volumes:
+      # Guarda os arquivos estáticos/mídia fora do container, para que
+      # persistam mesmo se o container "web" for recriado.
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    depends_on:
+      db:
+        # "service_healthy" (e não apenas "service_started") garante que o
+        # Django só tenta subir DEPOIS que o Postgres passou no healthcheck
+        # definido acima — é exatamente a dependência pedida no enunciado.
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:

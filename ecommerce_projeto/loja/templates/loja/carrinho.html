@@ -1,0 +1,97 @@
+{% extends 'loja/base.html' %}
+
+{% block titulo %}Carrinho{% endblock %}
+
+{% block conteudo %}
+<h1 class="mb-4">Seu Carrinho</h1>
+
+{% if itens %}
+<table class="table align-middle">
+    <thead>
+        <tr>
+            <th>Produto</th>
+            <th>Preço unit.</th>
+            <th style="width: 140px">Quantidade</th>
+            <th>Subtotal</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in itens %}
+        <tr>
+            <td>{{ item.produto.nome }}</td>
+            <td>R$ {{ item.preco_unitario }}</td>
+            <td>
+                <!-- Cada linha tem seu próprio mini-formulário para atualizar a quantidade -->
+                <form method="post" class="d-flex gap-1">
+                    {% csrf_token %}
+                    <input type="hidden" name="produto_id" value="{{ item.produto.id }}">
+                    <input
+                        type="number"
+                        name="quantidade"
+                        value="{{ item.quantidade }}"
+                        min="0"
+                        max="{{ item.produto.estoque|add:item.quantidade }}"
+                        class="form-control form-control-sm"
+                    >
+                    <button type="submit" name="atualizar" value="1" class="btn btn-sm btn-outline-secondary">
+                        Atualizar
+                    </button>
+                </form>
+            </td>
+            <td>R$ {{ item.subtotal }}</td>
+            <td>
+                <form
+                    method="post"
+                    action="{% url 'loja:remover_do_carrinho' item.produto.id %}"
+                >
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Remover</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="row justify-content-end">
+    <div class="col-md-4">
+
+        <!-- Formulário de cupom -->
+        <form method="post" class="d-flex gap-2 mb-3">
+            {% csrf_token %}
+            {{ form_cupom.codigo }}
+            <button type="submit" name="aplicar_cupom" value="1" class="btn btn-outline-primary">
+                Aplicar
+            </button>
+        </form>
+        {% if cupom_aplicado %}
+            <p class="text-success small">Cupom aplicado: {{ cupom_aplicado.codigo }}</p>
+        {% endif %}
+
+        <table class="table">
+            <tr>
+                <td>Subtotal</td>
+                <td class="text-end">R$ {{ subtotal }}</td>
+            </tr>
+            <tr>
+                <td>Desconto</td>
+                <td class="text-end">- R$ {{ desconto }}</td>
+            </tr>
+            <tr class="fw-bold fs-5">
+                <td>Total</td>
+                <td class="text-end">R$ {{ total }}</td>
+            </tr>
+        </table>
+
+        <a href="{% url 'loja:finalizar_pedido' %}" class="btn btn-success w-100">
+            Finalizar pedido
+        </a>
+    </div>
+</div>
+
+{% else %}
+    <p>Seu carrinho está vazio.</p>
+    <a href="{% url 'loja:lista_produtos' %}" class="btn btn-primary">Ver produtos</a>
+{% endif %}
+{% endblock %}

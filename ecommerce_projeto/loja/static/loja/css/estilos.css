@@ -1,0 +1,10 @@
+/* estilos.css
+   -----------
+   Pequenos ajustes visuais além do que o Bootstrap já fornece.
+   Mantido mínimo de propósito: o enunciado pede "no máximo um pouco de
+   JavaScript e Bootstrap", então evitamos reinventar estilos aqui. */
+
+.card-img-top {
+    height: 180px;
+    object-fit: cover; /* corta a imagem mantendo a proporção, sem distorcer */
+}
