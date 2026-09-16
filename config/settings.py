@@ -167,11 +167,58 @@ MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # --------------------------------------------------------------------------
+# LOGGING (registro de erros)
+# --------------------------------------------------------------------------
+# Por padrão, o Django só imprime erros 500 no console quando DEBUG=True —
+# com DEBUG=False (nosso caso em produção/Docker), os erros vão só para
+# "mail_admins" (e-mail), que não está configurado aqui, então o erro
+# "desaparece" e você só vê o "500" genérico no navegador.
+#
+# Esta configuração força que QUALQUER erro (mesmo com DEBUG=False) seja
+# impresso no console — que é exatamente o que aparece em "docker logs" /
+# "docker compose logs web". Essencial para depurar dentro de containers,
+# já que não temos acesso a uma tela de erro do Django lá.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+        },
+        'django.request': {
+            # É este logger específico que recebe as exceptions de views
+            # (erros 500). Colocamos nível DEBUG para não perder nada, e
+            # propagate=False para não duplicar a mensagem no logger "django".
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
+
+# --------------------------------------------------------------------------
 # CHAVE PRIMÁRIA PADRÃO
 # --------------------------------------------------------------------------
 # Define o tipo de campo usado automaticamente como "id" em modelos que não
 # especificam uma chave primária customizada.
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# --------------------------------------------------------------------------
+# AUTENTICAÇÃO
+# --------------------------------------------------------------------------
+# Para onde o Django manda o usuário quando uma view marcada com
+# @login_required é acessada sem estar logado.
+LOGIN_URL = 'loja:login'
+# Para onde o Django manda o usuário depois de um login bem-sucedido (quando
+# não há um "?next=" na URL) e depois de um logout, respectivamente.
+LOGIN_REDIRECT_URL = 'loja:lista_produtos'
+LOGOUT_REDIRECT_URL = 'loja:lista_produtos'
 
 # --------------------------------------------------------------------------
 # CONFIGURAÇÕES DO CARRINHO (usadas pelo nosso código em loja/cart.py)

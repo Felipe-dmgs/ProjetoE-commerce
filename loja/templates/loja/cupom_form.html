@@ -1,0 +1,30 @@
+{% extends 'loja/base.html' %}
+
+{% block titulo %}Cadastrar cupom{% endblock %}
+
+{% block conteudo %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <h1 class="mb-4">Cadastrar cupom de desconto</h1>
+
+        <form method="post">
+            {% csrf_token %}
+
+            {% for campo in form %}
+                <div class="mb-3 {% if campo.field.widget.input_type == 'checkbox' %}form-check{% endif %}">
+                    <label class="form-label">{{ campo.label }}</label>
+                    {{ campo }}
+                    {% if campo.help_text %}
+                        <div class="form-text">{{ campo.help_text }}</div>
+                    {% endif %}
+                    {% for erro in campo.errors %}
+                        <div class="text-danger small">{{ erro }}</div>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+
+            <button type="submit" class="btn btn-success">Cadastrar cupom</button>
+        </form>
+    </div>
+</div>
+{% endblock %}
