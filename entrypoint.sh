@@ -1,3 +1,4 @@
+#!/bin/sh
 set -e
 
 echo ">> Aguardando o PostgreSQL aceitar conexoes..."
@@ -41,7 +42,7 @@ python manage.py migrate --noinput
 
 python manage.py collectstatic --noinput
 
-echo ">> Subindo o Gunicorn..."
+
 # --bind 0.0.0.0:8000 -> aceita conexoes de fora do container
 # --workers 3         -> numero de processos que atendem requisicoes em paralelo
 # --access-logfile -  -> manda o log de acesso para a saida padrao (aparece no "docker logs")

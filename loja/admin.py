@@ -1,11 +1,3 @@
-"""
-admin.py
---------
-Registra nossos models no painel administrativo do Django (/admin/), para
-que você consiga cadastrar Vendedores, Produtos e Cupons rapidamente pela
-interface pronta, sem precisar criar telas manualmente para isso.
-"""
-
 from django.contrib import admin
 
 from .models import Cupom, ItemPedido, Pedido, Produto, Vendedor

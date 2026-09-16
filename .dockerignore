@@ -1,8 +1,3 @@
-# .dockerignore
-# -------------
-# Evita copiar arquivos desnecessários (ou sensíveis) para dentro da imagem
-# Docker, deixando o build mais rápido e a imagem mais leve/segura.
-
 __pycache__/
 *.pyc
 *.pyo

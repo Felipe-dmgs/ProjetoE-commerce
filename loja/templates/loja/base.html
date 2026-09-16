@@ -3,8 +3,7 @@
     base.html
     ---------
     Template "pai": define a estrutura comum a todas as páginas (menu, rodapé,
-    inclusão do Bootstrap). As outras páginas usam {% extends 'loja/base.html' %}
-    e só precisam preencher o bloco {% block conteudo %}.
+    inclusão do Bootstrap).
 -->
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -28,7 +27,7 @@
         <a class="navbar-brand" href="{% url 'loja:lista_produtos' %}">Mini E-commerce</a>
         <div class="d-flex">
             <a href="{% url 'loja:ver_carrinho' %}" class="btn btn-outline-light">
-                🛒 Carrinho
+                Carrinho
             </a>
         </div>
     </div>

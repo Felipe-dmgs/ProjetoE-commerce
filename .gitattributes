@@ -1,0 +1,4 @@
+# .gitattributes
+# ---------------
+# Garante que arquivos de script (.sh) sejam sempre gravados com terminador de linha LF (padrão Unix/Linux)
+*.sh text eol=lf

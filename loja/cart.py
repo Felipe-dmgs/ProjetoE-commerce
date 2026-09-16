@@ -1,20 +1,3 @@
-"""
-cart.py
--------
-Classe auxiliar (não é um model!) que representa o "carrinho de compras".
-
-Decisão de design: em vez de guardar os itens do carrinho só na sessão do
-navegador (dicionário de sessão), nós usamos a própria sessão apenas para
-guardar QUAL Pedido (com status ABERTO) pertence a este visitante. Os itens
-em si já ficam salvos no banco (tabela ItemPedido), amarrados a esse Pedido.
-
-Vantagens dessa abordagem:
-    - O carrinho "sobrevive" mesmo que o servidor reinicie (fica no banco).
-    - Reaproveitamos o mesmo model Pedido tanto para o carrinho (status ABERTO)
-      quanto para o pedido finalizado (status FINALIZADO) — sem duplicar lógica
-      de cálculo de total.
-"""
-
 from decimal import Decimal
 
 from .models import Pedido, ItemPedido, Produto
