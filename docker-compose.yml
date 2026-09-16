@@ -1,14 +1,3 @@
-# docker-compose.yml
-# -------------------
-# Sobe DOIS containers:
-#   1. "db"  -> banco de dados PostgreSQL
-#   2. "web" -> nosso projeto Django, servido pelo Gunicorn (construído a
-#               partir do Dockerfile deste mesmo diretório)
-#
-# O container "web" só INICIA depois que o "db" estiver com healthcheck
-# "healthy" (veja "depends_on" lá embaixo) — isso evita que o Django tente
-# se conectar a um Postgres que ainda está inicializando.
-
 services:
 
   # ------------------------------------------------------------------
@@ -41,7 +30,7 @@ services:
   # APLICAÇÃO DJANGO (via Gunicorn)
   # ------------------------------------------------------------------
   web:
-    build: .              # constrói a imagem a partir do Dockerfile desta pasta
+    build: .              
     container_name: ecommerce_web
     restart: unless-stopped
     env_file:
@@ -60,9 +49,6 @@ services:
       - media_volume:/app/media
     depends_on:
       db:
-        # "service_healthy" (e não apenas "service_started") garante que o
-        # Django só tenta subir DEPOIS que o Postgres passou no healthcheck
-        # definido acima — é exatamente a dependência pedida no enunciado.
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz/"]

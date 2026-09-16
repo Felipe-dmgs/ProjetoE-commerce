@@ -4,12 +4,6 @@ settings.py
 Arquivo central de configurações do projeto Django.
 Aqui definimos: quais apps estão instalados, qual banco de dados usar,
 onde ficam os templates, arquivos estáticos, etc.
-
-IMPORTANTE (Docker): a maioria dos valores sensíveis/variáveis (SECRET_KEY,
-DEBUG, dados do Postgres, etc.) agora vem de VARIÁVEIS DE AMBIENTE, lidas com
-`os.environ.get('NOME', 'valor_padrao')`. Isso permite usar o MESMO código
-tanto rodando localmente (sem Docker, com os valores padrão) quanto dentro
-dos containers (onde o docker-compose.yml injeta os valores reais).
 """
 
 import os
