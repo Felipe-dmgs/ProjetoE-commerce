@@ -6,9 +6,11 @@ o que evita conflito de nomes de URL caso você crie outros apps no futuro
 e queira usar, por exemplo, o mesmo nome 'lista' em cada um deles.
 """
 
+from django.contrib.auth import views as auth_views
 from django.urls import path
 
 from . import views
+from .forms import LoginForm
 
 app_name = 'loja'
 
@@ -19,4 +21,13 @@ urlpatterns = [
     path('carrinho/remover/<int:produto_id>/', views.remover_do_carrinho, name='remover_do_carrinho'),
     path('finalizar/', views.finalizar_pedido, name='finalizar_pedido'),
     path('pedido/<int:pedido_id>/confirmado/', views.pedido_confirmado, name='pedido_confirmado'),
+    path('cadastro/', views.registro, name='registro'),
+    path(
+        'entrar/',
+        auth_views.LoginView.as_view(template_name='loja/login.html', authentication_form=LoginForm),
+        name='login',
+    ),
+    path('sair/', auth_views.LogoutView.as_view(next_page='loja:lista_produtos'), name='logout'),
+    path('vendedor/produtos/novo/', views.cadastrar_produto, name='cadastrar_produto'),
+    path('vendedor/cupons/novo/', views.cadastrar_cupom, name='cadastrar_cupom'),
 ]

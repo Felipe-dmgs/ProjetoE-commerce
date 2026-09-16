@@ -39,7 +39,7 @@ PYCODE
 python manage.py makemigrations --noinput
 
 python manage.py migrate --noinput
-
+#Coleta arquivos estaticos
 python manage.py collectstatic --noinput
 
 

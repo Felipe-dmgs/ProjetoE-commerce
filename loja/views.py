@@ -8,14 +8,15 @@ Fluxo desta primeira entrega:
     1. `lista_produtos`      -> vitrine de produtos, com botão "adicionar ao carrinho"
     2. `adicionar_ao_carrinho` -> processa o formulário e adiciona o item
     3. `ver_carrinho`        -> mostra os itens, permite alterar quantidade,
-                                 aplicar cupom e mostra o TOTAL calculado
+                                aplicar cupom e mostra o TOTAL calculado
     4. `remover_do_carrinho` -> remove um item do carrinho
     5. `finalizar_pedido`    -> tela com dados do cliente + confirma o pedido
-                                 (aqui acontece a BAIXA DE ESTOQUE)
+                                (aqui acontece a BAIXA DE ESTOQUE)
     6. `pedido_confirmado`   -> página de sucesso, mostrando o resumo do pedido
 """
 
 from django.contrib import messages
+from django.contrib.auth import login
 from django.db import connection
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -23,7 +24,15 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from .cart import Carrinho
-from .forms import AdicionarAoCarrinhoForm, CupomForm, FinalizarPedidoForm
+from .decorators import vendedor_required
+from .forms import (
+    AdicionarAoCarrinhoForm,
+    AplicarCupomForm,
+    CupomCadastroForm,
+    FinalizarPedidoForm,
+    ProdutoForm,
+    RegistroForm,
+)
 from .models import Cupom, Pedido, Produto
 
 
@@ -100,7 +109,7 @@ def ver_carrinho(request):
         return redirect('loja:ver_carrinho')
 
     # --- Aplicação de cupom ---
-    form_cupom = CupomForm(request.POST or None)
+    form_cupom = AplicarCupomForm(request.POST or None)
     if request.method == 'POST' and 'aplicar_cupom' in request.POST and form_cupom.is_valid():
         codigo = form_cupom.cleaned_data['codigo'].strip()
         if codigo:
@@ -184,3 +193,79 @@ def pedido_confirmado(request, pedido_id):
         'total': pedido.calcular_total(),
     }
     return render(request, 'loja/pedido_confirmado.html', contexto)
+
+
+# ============================================================================
+# AUTENTICAÇÃO
+# ============================================================================
+def registro(request):
+    """
+    Tela de cadastro: nome de usuário + senha + dropdown "Cliente/Vendedor".
+    Se a pessoa escolher "Vendedor", o próprio RegistroForm já cria o
+    registro de Vendedor ligado à conta (ver forms.RegistroForm.save()).
+    """
+    # Se a pessoa já está logada, não faz sentido mostrar a tela de cadastro.
+    if request.user.is_authenticated:
+        return redirect('loja:lista_produtos')
+
+    if request.method == 'POST':
+        form = RegistroForm(request.POST)
+        if form.is_valid():
+            usuario = form.save()
+            # Loga a pessoa automaticamente após o cadastro, para ela já
+            # cair "dentro" do site sem precisar preencher o login de novo.
+            login(request, usuario)
+
+            if form.cleaned_data['tipo'] == RegistroForm.TIPO_VENDEDOR:
+                messages.success(
+                    request,
+                    f'Conta de vendedor criada! Bem-vindo(a), {usuario.username}. '
+                    'Agora você já pode cadastrar produtos e cupons.',
+                )
+            else:
+                messages.success(request, f'Conta criada! Bem-vindo(a), {usuario.username}.')
+
+            return redirect('loja:lista_produtos')
+    else:
+        form = RegistroForm()
+
+    return render(request, 'loja/registro.html', {'form': form})
+
+
+# ============================================================================
+# ÁREA DO VENDEDOR
+# ============================================================================
+@vendedor_required
+def cadastrar_produto(request):
+    """
+    Página exclusiva de vendedores logados para cadastrar um novo Produto.
+    O `@vendedor_required` (loja/decorators.py) garante duas coisas antes de
+    deixar chegar até aqui: a pessoa está logada E tem um perfil de Vendedor.
+    """
+    if request.method == 'POST':
+        form = ProdutoForm(request.POST, request.FILES)  # request.FILES: necessário para o upload de imagem
+        if form.is_valid():
+            produto = form.save(commit=False)  # commit=False: ainda não salva no banco
+            produto.vendedor = request.user.perfil_vendedor  # associa ao vendedor logado
+            produto.save()
+            messages.success(request, f'Produto "{produto.nome}" cadastrado com sucesso!')
+            return redirect('loja:lista_produtos')
+    else:
+        form = ProdutoForm()
+
+    return render(request, 'loja/produto_form.html', {'form': form})
+
+
+@vendedor_required
+def cadastrar_cupom(request):
+    """Página exclusiva de vendedores logados para cadastrar um novo Cupom."""
+    if request.method == 'POST':
+        form = CupomCadastroForm(request.POST)
+        if form.is_valid():
+            cupom = form.save()
+            messages.success(request, f'Cupom "{cupom.codigo}" cadastrado com sucesso!')
+            return redirect('loja:lista_produtos')
+    else:
+        form = CupomCadastroForm()
+
+    return render(request, 'loja/cupom_form.html', {'form': form})

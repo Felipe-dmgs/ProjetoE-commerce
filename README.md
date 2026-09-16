@@ -132,17 +132,29 @@ usar SQLite rapidamente para testes).
 
 ## Cadastrando dados de teste
 
-Como ainda não há tela de cadastro de produtos (isso é lógica de "admin da
-loja", fora do escopo do carrinho), use o **painel /admin/** para criar:
+Agora existem duas formas de cadastrar Vendedores/Produtos/Cupons:
 
-1. Um **Vendedor** (nome + e-mail).
-2. Alguns **Produtos**, ligados a esse vendedor, com preço e estoque.
-3. (Opcional) Um **Cupom**, com código, percentual de desconto e validade
-   futura, para testar o campo de cupom no carrinho.
+### 1. Pela própria loja (novo!)
+- Acesse `/cadastro/`, escolha **"Vendedor"** no dropdown, defina usuário e senha.
+- Você já entra logado automaticamente e passa a ver dois botões novos no
+  menu: **+ Produto** e **+ Cupom** — só aparecem para quem se cadastrou
+  como vendedor (ver `loja/decorators.py:vendedor_required`).
+- Quem se cadastra como **"Cliente"** não vê esses botões e não consegue
+  acessar `/vendedor/produtos/novo/` nem `/vendedor/cupons/novo/` diretamente
+  pela URL (a página redireciona com uma mensagem de erro).
 
-Depois disso, é só acessar a loja, adicionar produtos ao carrinho, aplicar
-um cupom (se quiser) e finalizar o pedido — o estoque do produto será
-reduzido automaticamente.
+### 2. Pelo painel /admin/ (como antes)
+Continua funcionando normalmente para cadastros administrativos ou em lote.
+
+## Como funciona o vínculo Vendedor ↔️ Usuário
+
+O model `Vendedor` agora tem um campo `usuario` (`OneToOneField` para o
+`auth.User` do Django). Quando alguém se cadastra escolhendo "Vendedor", o
+`RegistroForm` cria automaticamente um `Vendedor` ligado à conta criada.
+É esse vínculo (`request.user.perfil_vendedor`) que:
+- libera o acesso às páginas `/vendedor/produtos/novo/` e `/vendedor/cupons/novo/`;
+- preenche sozinho o campo `vendedor` do produto cadastrado (o vendedor
+  logado nunca escolhe manualmente "em nome de quem" está cadastrando).
 
 ## Estrutura do projeto
 
@@ -167,7 +179,7 @@ ecommerce_projeto/
 └── requirements.txt
 ```
 
-## Próximos passos (fora do escopo desta entrega, ver P2 do enunciado)
+## Próximos passos (fora do escopo desta entrega)
 - Marketplace multi-vendedor com área própria para cada vendedor.
 - Dashboard administrativo customizado.
 - API com Django REST Framework (DRF).

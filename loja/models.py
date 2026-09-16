@@ -11,14 +11,11 @@ Entidades pedidas no enunciado:
     - Pedido
     - Item (aqui chamado de ItemPedido, para deixar claro que é um item DE um pedido)
     - Cupom
-
-Funcionalidade central desta entrega:
-    - Carrinho/Pedido com cálculo de total (ver método `calcular_total` em Pedido)
-    - Baixa de estoque ao finalizar o pedido (ver método `finalizar` em Pedido)
 """
 
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import models
 from django.core.validators import MinValueValidator
 from django.utils import timezone
@@ -28,15 +25,39 @@ from django.utils import timezone
 # VENDEDOR
 # ============================================================================
 class Vendedor(models.Model):
-    """Representa quem está vendendo o produto (uma loja/pessoa/empresa)."""
+    """
+    Representa quem está vendendo o produto (uma loja/pessoa/empresa).
+
+    O campo `usuario` liga este Vendedor a uma conta de login (o model padrão
+    de usuário do Django, `auth.User`). É esse vínculo que permite ao sistema
+    saber, quando alguém está logado, se essa pessoa "é vendedor" ou não —
+    veja `loja/decorators.py` (`vendedor_required`) e o cadastro em
+    `loja/forms.py` (`RegistroForm`).
+
+    `null=True, blank=True` porque, tecnicamente, ainda é possível cadastrar
+    um Vendedor "solto" (sem login) direto pelo admin, como antes.
+    """
+
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='perfil_vendedor',
+        null=True,
+        blank=True,
+    )
 
     nome = models.CharField(max_length=150)
-    email = models.EmailField(unique=True)
+    # Passou a ser opcional: no cadastro simplificado (só usuário/senha) não
+    # pedimos e-mail. unique=True + null=True funciona bem no Postgres, que
+    # trata cada NULL como "diferente" dos outros (não conflita a unicidade).
+    email = models.EmailField(unique=True, null=True, blank=True)
     telefone = models.CharField(max_length=20, blank=True)
-    criado_em = models.DateTimeField(auto_now_add=True)  # preenchido automaticamente na criação
+    criado_em = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['nome']  # ordena por nome por padrão nas consultas
+        verbose_name = 'Vendedor'
+        verbose_name_plural = 'Vendedores'
 
     def __str__(self):
         # __str__ define como o objeto aparece no admin e em prints/debug.

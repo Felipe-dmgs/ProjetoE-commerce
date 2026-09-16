@@ -5,8 +5,8 @@ from .models import Cupom, ItemPedido, Pedido, Produto, Vendedor
 
 @admin.register(Vendedor)
 class VendedorAdmin(admin.ModelAdmin):
-    list_display = ('nome', 'email', 'telefone', 'criado_em')
-    search_fields = ('nome', 'email')
+    list_display = ('nome', 'usuario', 'email', 'telefone', 'criado_em')
+    search_fields = ('nome', 'email', 'usuario__username')
 
 
 @admin.register(Produto)
