@@ -22,7 +22,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
-
+from django.db.models import Q
 from .cart import Carrinho
 from .decorators import vendedor_required
 from .forms import (
@@ -35,7 +35,6 @@ from .forms import (
 )
 from .models import Cupom, Pedido, Produto
 
-
 def healthcheck(request):
     """
     Endpoint simples usado pelo HEALTHCHECK do Docker (veja o docker-compose.yml).
@@ -46,47 +45,56 @@ def healthcheck(request):
         with connection.cursor() as cursor:
             cursor.execute('SELECT 1;')
         return JsonResponse({'status': 'ok'})
-    except Exception as erro:  # pragma: no cover - só usado para diagnóstico
+    except Exception as erro:
         return JsonResponse({'status': 'erro', 'detalhe': str(erro)}, status=500)
 
 
+from django.db.models import Q
+from django.shortcuts import render
+from .forms import AdicionarAoCarrinhoForm
+from .models import Produto
+
+
 def lista_produtos(request):
-    """Vitrine: mostra todos os produtos ativos e com estoque disponível."""
+    """Vitrine: mostra os produtos ativos e permite filtrar por nome OU vendedor usando Q."""
     produtos = Produto.objects.filter(ativo=True).select_related('vendedor')
+    termo_nome = request.GET.get('nome', '').strip()
+    termo_vendedor = request.GET.get('vendedor', '').strip()
+    filtros_pesquisa = Q()
+    if termo_nome:
+        filtros_pesquisa |= Q(nome__icontains=termo_nome)
+    if termo_vendedor:
+        filtros_pesquisa |= Q(vendedor__nome__icontains=termo_vendedor)
+    if termo_nome or termo_vendedor:
+        produtos = produtos.filter(filtros_pesquisa)
+
     form_quantidade = AdicionarAoCarrinhoForm()
 
     contexto = {
         'produtos': produtos,
         'form_quantidade': form_quantidade,
+        'v_nome': termo_nome,
+        'v_vendedor': termo_vendedor,
     }
     return render(request, 'loja/produto_list.html', contexto)
 
 
-@require_POST  # só aceita requisições POST — adicionar ao carrinho não deveria ser um GET
-def adicionar_ao_carrinho(request, produto_id):
-    """Recebe o formulário da vitrine e adiciona X unidades de um produto ao carrinho."""
-    produto = get_object_or_404(Produto, id=produto_id, ativo=True)
-    form = AdicionarAoCarrinhoForm(request.POST)
 
+
+@require_POST
+def adicionar_ao_carrinho(request, produto_id):
+    produto = get_object_or_404(Produto, id=produto_id, ativo=True)
+    form = AdicionarAoCarrinhoForm(
+        request.POST, estoque_maximo=produto.estoque
+        )
     if form.is_valid():
         quantidade = form.cleaned_data['quantidade']
-
-        # Checagem simples de estoque só para dar um feedback melhor ao usuário;
-        # a checagem "de verdade" (que garante consistência) acontece de novo
-        # em Pedido.finalizar(), no momento de fechar a compra.
-        if not produto.tem_estoque(quantidade):
-            messages.error(
-                request,
-                f'Não há estoque suficiente de "{produto.nome}". '
-                f'Disponível: {produto.estoque}.',
-            )
-            return redirect('loja:lista_produtos')
-
         carrinho = Carrinho(request)
         carrinho.adicionar(produto, quantidade)
         messages.success(request, f'"{produto.nome}" adicionado ao carrinho.')
     else:
-        messages.error(request, 'Quantidade inválida.')
+        for erro in form.errors.values():
+            messages.error(request, erro.as_text())
 
     return redirect('loja:lista_produtos')
 
@@ -164,7 +172,6 @@ def finalizar_pedido(request):
             pedido.save(update_fields=['cliente_nome', 'cliente_email'])
 
             try:
-                # Aqui acontece a mágica: valida estoque + dá baixa + muda status.
                 pedido.finalizar()
             except ValueError as erro:
                 # Ex.: outro cliente comprou o último item enquanto este

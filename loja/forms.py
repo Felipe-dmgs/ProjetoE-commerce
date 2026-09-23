@@ -30,17 +30,29 @@ def _adicionar_classe_bootstrap(form):
     return form
 
 
-# ============================================================================
-# CARRINHO / CHECKOUT
-# ============================================================================
 class AdicionarAoCarrinhoForm(forms.Form):
-    """Formulário simples usado no botão 'Adicionar ao carrinho' da lista de produtos."""
-
     quantidade = forms.IntegerField(
         min_value=1,
         initial=1,
-        widget=forms.NumberInput(attrs={'class': 'form-control', 'style': 'width: 80px'}),
+        widget=forms.NumberInput(
+            attrs={'class': 'form-control', 'style': 'width: 80px'}
+            ),
     )
+
+    def __init__(self, *args, **kwargs):
+        self.estoque_maximo = kwargs.pop('estoque_maximo', None)
+        super().__init__(*args, **kwargs)
+        
+    def clean_quantidade(self):
+        quantidade = self.cleaned_data.get('quantidade')
+        if (
+            self.estoque_maximo is not None
+            and quantidade
+            and quantidade > self.estoque_maximo):
+            raise forms.ValidationError(
+            f'Estoque insuficiente. Disponível: {self.estoque_maximo}.'
+            )
+        return quantidade
 
 
 class AplicarCupomForm(forms.Form):
@@ -168,19 +180,39 @@ class ProdutoForm(forms.ModelForm):
         }
 
 
+from django.utils import timezone  # Importe no topo do arquivo
+
+
 class CupomCadastroForm(forms.ModelForm):
-    """
-    Formulário de cadastro de Cupom, usado na página exclusiva do vendedor.
-    (Diferente do `AplicarCupomForm`, que é o campinho de "digite seu cupom"
-    na página do carrinho, usado pelo cliente.)
-    """
+    """Formulário de cadastro de Cupom, usado na página exclusiva do vendedor."""
 
     class Meta:
         model = Cupom
         fields = ['codigo', 'desconto_percentual', 'validade', 'ativo']
         widgets = {
-            'codigo': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Ex: BEMVINDO10'}),
-            'desconto_percentual': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
-            'validade': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+            'codigo': forms.TextInput(
+                attrs={'class': 'form-control', 'placeholder': 'Ex: BEMVINDO10'}
+            ),
+            'desconto_percentual': forms.NumberInput(
+                attrs={'class': 'form-control', 'step': '0.01'}
+            ),
+            'validade': forms.DateInput(
+                attrs={'class': 'form-control', 'type': 'date'}
+            ),
             'ativo': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
+    def clean_desconto_percentual(self):
+        desconto = self.cleaned_data.get('desconto_percentual')
+        if desconto and (desconto <= 0 or desconto > 100):
+            raise forms.ValidationError(
+            'O desconto deve ser um valor percentual entre 0.01% e 100%.'
+            )
+        return desconto
+
+    def clean_validade(self):
+        validade = self.cleaned_data.get('validade')
+        if validade and validade < timezone.now().date():
+            raise forms.ValidationError(
+            'A data de validade não pode ser no passado.'
+            )
+        return validade

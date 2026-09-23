@@ -90,7 +90,6 @@ class Produto(models.Model):
     ativo = models.BooleanField(default=True)  # permite "desativar" um produto sem apagá-lo
     imagem = models.ImageField(upload_to='produtos/', blank=True, null=True)
     criado_em = models.DateTimeField(auto_now_add=True)
-
     class Meta:
         ordering = ['nome']
 

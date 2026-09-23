@@ -5,6 +5,25 @@
 {% block conteudo %}
 <h1 class="mb-4">Nossos Produtos</h1>
 
+<div class="card p-3 mb-4 bg-light shadow-sm">
+    <form method="GET" action="" class="row g-3">
+        <div class="col-md-5">
+            <label for="inputNome" class="form-label small fw-bold">Nome do Produto</label>
+            <input type="text" name="nome" id="inputNome" class="form-control" placeholder="Ex: Camiseta" value="{{ v_nome }}">
+        </div>
+        <div class="col-md-5">
+            <label for="inputVendedor" class="form-label small fw-bold">Vendedor</label>
+            <input type="text" name="vendedor" id="inputVendedor" class="form-control" placeholder="Ex: João Silva" value="{{ v_vendedor }}">
+        </div>
+        <div class="col-md-2 d-flex align-items-end gap-2">
+            <button type="submit" class="btn btn-primary w-100">Filtrar</button>
+            {% if v_nome or v_vendedor %}
+                <a href="{% url 'loja:lista_produtos' %}" class="btn btn-secondary">Limpar</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
 <div class="row row-cols-1 row-cols-md-3 g-4">
     {% for produto in produtos %}
         <div class="col">
@@ -22,12 +41,7 @@
                     {% if produto.estoque > 0 %}
                         <p class="text-success small">Em estoque: {{ produto.estoque }} un.</p>
 
-                        <!-- Formulário que envia POST para adicionar ao carrinho -->
-                        <form
-                            action="{% url 'loja:adicionar_ao_carrinho' produto.id %}"
-                            method="post"
-                            class="mt-auto d-flex gap-2"
-                        >
+                        <form action="{% url 'loja:adicionar_ao_carrinho' produto.id %}" method="post" class="mt-auto d-flex gap-2">
                             {% csrf_token %}
                             {{ form_quantidade.quantidade }}
                             <button type="submit" class="btn btn-primary flex-grow-1">
@@ -41,7 +55,9 @@
             </div>
         </div>
     {% empty %}
-        <p>Nenhum produto disponível no momento.</p>
+        <div class="col-12">
+            <p class="alert alert-warning text-center">Nenhum produto disponível com os filtros aplicados.</p>
+        </div>
     {% endfor %}
 </div>
 {% endblock %}
