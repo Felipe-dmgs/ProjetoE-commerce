@@ -56,17 +56,35 @@
 
 <div class="row justify-content-end">
     <div class="col-md-4">
-
-        <!-- Formulário de cupom -->
-        <form method="post" class="d-flex gap-2 mb-3">
+        
+        <!-- Formulário de cupom único e corrigido -->
+        <form method="post" class="d-flex flex-column gap-1 mb-3">
             {% csrf_token %}
-            {{ form_cupom.codigo }}
-            <button type="submit" name="aplicar_cupom" value="1" class="btn btn-outline-primary">
-                Aplicar
-            </button>
+            
+            <!-- EXIBE ERROS DO CAMPO 'CODIGO' SE HOUVEREM -->
+            {% if form_cupom.codigo.errors %}
+                <div class="text-danger small fw-bold">
+                    {{ form_cupom.codigo.errors }}
+                </div>
+            {% endif %}
+            
+            <!-- EXIBE ERROS GLOBAIS DO FORMULÁRIO (ex: cupom expirado ou inválido) -->
+            {% if form_cupom.non_field_errors %}
+                <div class="text-danger small fw-bold">
+                    {{ form_cupom.non_field_errors }}
+                </div>
+            {% endif %}
+
+            <div class="d-flex gap-2">
+                {{ form_cupom.codigo }}
+                <button type="submit" name="aplicar_cupom" value="1" class="btn btn-outline-primary">
+                    Aplicar
+                </button>
+            </div>
         </form>
+
         {% if cupom_aplicado %}
-            <p class="text-success small">Cupom aplicado: {{ cupom_aplicado.codigo }}</p>
+            <p class="text-success small fw-bold">Cupom aplicado: {{ cupom_aplicado.codigo }}</p>
         {% endif %}
 
         <table class="table">

@@ -10,6 +10,13 @@
         <form method="post">
             {% csrf_token %}
 
+            <!-- ADICIONADO: Captura erros globais do formulário de cadastro -->
+            {% if form.non_field_errors %}
+                <div class="alert alert-danger p-2 small fw-bold mb-3">
+                    {{ form.non_field_errors }}
+                </div>
+            {% endif %}
+
             {% for campo in form %}
                 <div class="mb-3 {% if campo.field.widget.input_type == 'checkbox' %}form-check{% endif %}">
                     <label class="form-label">{{ campo.label }}</label>
