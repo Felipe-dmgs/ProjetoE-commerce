@@ -1,0 +1,45 @@
+{% extends 'loja/base.html' %}
+
+{% block titulo %}Meus produtos{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">Meus produtos</h1>
+    <a href="{% url 'loja:cadastrar_produto' %}" class="btn btn-success">+ Novo produto</a>
+</div>
+
+{% if produtos %}
+<table class="table align-middle">
+    <thead>
+        <tr>
+            <th>Produto</th>
+            <th>Preço</th>
+            <th>Estoque</th>
+            <th>Situação</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for produto in produtos %}
+        <tr>
+            <td>{{ produto.nome }}</td>
+            <td>R$ {{ produto.preco }}</td>
+            <td>{{ produto.estoque }}</td>
+            <td>
+                {% if produto.ativo %}
+                    <span class="badge text-bg-success">Ativo</span>
+                {% else %}
+                    <span class="badge text-bg-secondary">Inativo</span>
+                {% endif %}
+            </td>
+            <td class="text-end">
+                <a href="{% url 'loja:editar_produto' produto.pk %}" class="btn btn-sm btn-outline-secondary">Editar</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+    <p class="alert alert-info">Você ainda não cadastrou nenhum produto.</p>
+{% endif %}
+{% endblock %}

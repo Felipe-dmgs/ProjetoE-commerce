@@ -19,8 +19,10 @@ class ProdutoAdmin(admin.ModelAdmin):
 
 @admin.register(Cupom)
 class CupomAdmin(admin.ModelAdmin):
-    list_display = ('codigo', 'desconto_percentual', 'validade', 'ativo')
-    list_filter = ('ativo',)
+    # Cupons antigos (criados antes de existir "dono") aparecem com vendedor
+    # vazio e não valem até você escolher um vendedor para eles aqui.
+    list_display = ('codigo', 'vendedor', 'desconto_percentual', 'validade', 'ativo')
+    list_filter = ('ativo', 'vendedor')
 
 
 class ItemPedidoInline(admin.TabularInline):

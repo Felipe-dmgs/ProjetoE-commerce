@@ -28,6 +28,10 @@ urlpatterns = [
         name='login',
     ),
     path('sair/', auth_views.LogoutView.as_view(next_page='loja:lista_produtos'), name='logout'),
+    path('vendedor/produtos/', views.meus_produtos, name='meus_produtos'),
     path('vendedor/produtos/novo/', views.cadastrar_produto, name='cadastrar_produto'),
+    path('vendedor/produtos/<int:pk>/editar/', views.editar_produto, name='editar_produto'),
+    path('vendedor/cupons/', views.meus_cupons, name='meus_cupons'),
     path('vendedor/cupons/novo/', views.cadastrar_cupom, name='cadastrar_cupom'),
+    path('vendedor/cupons/<int:pk>/editar/', views.editar_cupom, name='editar_cupom'),
 ]

@@ -29,7 +29,11 @@ o carrinho inteiro, mesmo que ele misture produtos de vendedores diferentes.
 
 **Correção.** Adicionar `Cupom.vendedor`, preenchido a partir do usuário logado
 e nunca do formulário. Trocar o `unique` global por unicidade por vendedor e
-aplicar o desconto só sobre os itens daquele vendedor.
+aplicar o desconto só sobre os itens daquele vendedor. Se vários vendedores
+tiverem o mesmo código, o pedido aceita todos (`Pedido.cupons`, no máximo um
+por vendedor), cada um descontando os itens do seu vendedor. Gravar também o
+desconto no pedido ao finalizá-lo, para que editar ou desativar o cupom depois
+não altere o total de pedidos antigos.
 
 ## 3. Estoque pode ser burlado e a baixa não é atômica
 
@@ -76,7 +80,7 @@ roteiro de isolamento.
 | # | Melhoria | Situação |
 |---|----------|----------|
 | 1 | Pedidos vinculados ao usuário | Pendente |
-| 2 | Cupom exclusivo do vendedor | Pendente |
+| 2 | Cupom exclusivo do vendedor | Concluída (etapa 1) |
 | 3 | Estoque acumulado e baixa atômica | Pendente |
 | 4 | Carrinho preservado no login | Pendente |
 | 5 | Limpeza de código e README | Pendente |

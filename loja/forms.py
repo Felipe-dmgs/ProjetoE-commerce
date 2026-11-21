@@ -12,6 +12,7 @@ inválidas.
 from django import forms
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 from .models import Cupom, Produto, Vendedor
 
@@ -180,11 +181,16 @@ class ProdutoForm(forms.ModelForm):
         }
 
 
-from django.utils import timezone  # Importe no topo do arquivo
-
-
 class CupomCadastroForm(forms.ModelForm):
-    """Formulário de cadastro de Cupom, usado na página exclusiva do vendedor."""
+    """
+    Formulário de cadastro e edição de Cupom, usado na área do vendedor.
+
+    O campo `vendedor` NÃO está no formulário: a view o preenche com o vendedor
+    logado, para ninguém criar cupom "em nome de" outro vendedor. Por isso o
+    Django não valida sozinho a unicidade de (vendedor, codigo), e fazemos essa
+    checagem em `clean_codigo` para devolver um erro amigável em vez de deixar
+    estourar um IntegrityError no banco.
+    """
 
     class Meta:
         model = Cupom
@@ -201,18 +207,43 @@ class CupomCadastroForm(forms.ModelForm):
             ),
             'ativo': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
+
+    def __init__(self, *args, vendedor, **kwargs):
+        # `vendedor` é obrigatório (keyword-only): sem ele não dá para checar
+        # a unicidade do código por vendedor.
+        super().__init__(*args, **kwargs)
+        self.vendedor = vendedor
+
+    def clean_codigo(self):
+        # Guardamos sempre em maiúsculas: o código "promo10" e o "PROMO10"
+        # passam a ser o mesmo cupom, e a restrição única do banco (que
+        # diferencia maiúsculas de minúsculas) deixa de ter brecha.
+        codigo = self.cleaned_data['codigo'].strip().upper()
+
+        existentes = Cupom.objects.filter(vendedor=self.vendedor, codigo__iexact=codigo)
+        if self.instance.pk:
+            # Ao EDITAR, o próprio cupom não conta como duplicado.
+            existentes = existentes.exclude(pk=self.instance.pk)
+        if existentes.exists():
+            raise forms.ValidationError('Você já possui um cupom com este código.')
+        return codigo
+
     def clean_desconto_percentual(self):
         desconto = self.cleaned_data.get('desconto_percentual')
         if desconto and (desconto <= 0 or desconto > 100):
             raise forms.ValidationError(
-            'O desconto deve ser um valor percentual entre 0.01% e 100%.'
+                'O desconto deve ser um valor percentual entre 0.01% e 100%.'
             )
         return desconto
 
     def clean_validade(self):
         validade = self.cleaned_data.get('validade')
-        if validade and validade < timezone.now().date():
+        # Ao editar, manter a validade que já estava salva é permitido mesmo
+        # que ela já tenha passado (ex.: o vendedor só quer desativar um cupom
+        # vencido). Só bloqueamos datas passadas NOVAS.
+        validade_mudou = not self.instance.pk or validade != self.instance.validade
+        if validade and validade_mudou and validade < timezone.localdate():
             raise forms.ValidationError(
-            'A data de validade não pode ser no passado.'
+                'A data de validade não pode ser no passado.'
             )
         return validade

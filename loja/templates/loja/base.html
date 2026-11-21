@@ -28,12 +28,19 @@
             {% if user.is_authenticated %}
                 {# user.perfil_vendedor: se não existir, o Django retorna "vazio" no template em vez de dar erro #}
                 {% if user.perfil_vendedor %}
-                    <a href="{% url 'loja:cadastrar_produto' %}" class="btn btn-outline-light btn-sm">
-                        + Produto
-                    </a>
-                    <a href="{% url 'loja:cadastrar_cupom' %}" class="btn btn-outline-light btn-sm">
-                        + Cupom
-                    </a>
+                    <div class="dropdown">
+                        <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button"
+                                data-bs-toggle="dropdown" aria-expanded="false">
+                            Área do vendedor
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="{% url 'loja:meus_produtos' %}">Meus produtos</a></li>
+                            <li><a class="dropdown-item" href="{% url 'loja:cadastrar_produto' %}">+ Novo produto</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{% url 'loja:meus_cupons' %}">Meus cupons</a></li>
+                            <li><a class="dropdown-item" href="{% url 'loja:cadastrar_cupom' %}">+ Novo cupom</a></li>
+                        </ul>
+                    </div>
                 {% endif %}
 
                 <a href="{% url 'loja:ver_carrinho' %}" class="btn btn-outline-light">🛒 Carrinho</a>

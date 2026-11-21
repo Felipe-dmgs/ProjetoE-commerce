@@ -106,12 +106,27 @@ class Produto(models.Model):
 # ============================================================================
 class Cupom(models.Model):
     """
-    Cupom de desconto que pode ser aplicado a um pedido.
-    Nesta primeira entrega o cupom já existe como entidade (pedido no enunciado),
-    mas a aplicação do desconto no carrinho é bem simples: percentual sobre o total.
+    Cupom de desconto criado por UM vendedor e válido apenas para os produtos
+    dele. O `vendedor` é o dono do cupom: só ele o enxerga e edita na área
+    do vendedor, e o desconto incide só sobre os itens desse vendedor no
+    carrinho (ver Pedido.detalhar_descontos).
+
+    `null=True, blank=True` existe só para os cupons criados ANTES desta
+    mudança, que não tinham dono. Um cupom sem vendedor nunca é considerado
+    válido (ver esta_valido) até que alguém atribua um dono a ele pelo admin.
     """
 
-    codigo = models.CharField(max_length=30, unique=True)
+    vendedor = models.ForeignKey(
+        Vendedor,
+        on_delete=models.CASCADE,   # se o vendedor for apagado, seus cupons também são
+        related_name='cupons',      # permite fazer vendedor.cupons.all()
+        null=True,
+        blank=True,
+    )
+
+    # Não é mais unique=True (global): dois vendedores diferentes podem ter um
+    # cupom com o mesmo código. A unicidade agora é POR VENDEDOR (ver Meta).
+    codigo = models.CharField(max_length=30)
     desconto_percentual = models.DecimalField(
         max_digits=5, decimal_places=2,
         validators=[MinValueValidator(Decimal('0.00'))],
@@ -120,12 +135,28 @@ class Cupom(models.Model):
     validade = models.DateField()
     ativo = models.BooleanField(default=True)
 
+    class Meta:
+        ordering = ['codigo']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['vendedor', 'codigo'],
+                name='cupom_codigo_unico_por_vendedor',
+            ),
+        ]
+
     def __str__(self):
         return f'{self.codigo} (-{self.desconto_percentual}%)'
 
     def esta_valido(self):
-        """Um cupom só pode ser usado se estiver ativo e dentro da validade."""
-        return self.ativo and self.validade >= timezone.localdate()
+        """
+        Um cupom só pode ser usado se tiver dono, estiver ativo e dentro da
+        validade.
+        """
+        return (
+            self.vendedor_id is not None
+            and self.ativo
+            and self.validade >= timezone.localdate()
+        )
 
 
 # ============================================================================
@@ -156,8 +187,17 @@ class Pedido(models.Model):
 
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ABERTO)
 
-    cupom = models.ForeignKey(
-        Cupom, on_delete=models.SET_NULL, null=True, blank=True, related_name='pedidos'
+    # Um pedido pode ter VÁRIOS cupons, no máximo um por vendedor: cada cupom
+    # desconta só os itens do seu vendedor (ver detalhar_descontos). A regra
+    # "um por vendedor" é garantida na view que aplica o cupom (ver_carrinho).
+    cupons = models.ManyToManyField(Cupom, blank=True, related_name='pedidos')
+
+    # "Foto" do desconto no instante em que o pedido é finalizado. Sem isso, o
+    # total de um pedido antigo mudaria se o vendedor depois alterasse a
+    # porcentagem do cupom, desativasse ou deixasse vencer. Fica nulo enquanto
+    # o pedido é um carrinho aberto (aí o desconto é calculado na hora).
+    desconto_aplicado = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
     )
 
     criado_em = models.DateTimeField(auto_now_add=True)
@@ -184,15 +224,40 @@ class Pedido(models.Model):
             subtotal += item.subtotal()
         return subtotal
 
-    def calcular_desconto(self, subtotal=None):
-        """Calcula o valor (em R$) de desconto dado pelo cupom aplicado, se houver."""
-        if subtotal is None:
-            subtotal = self.calcular_subtotal()
+    def detalhar_descontos(self):
+        """
+        Devolve uma lista de (cupom, valor_do_desconto), uma linha para cada
+        cupom aplicado ao pedido.
 
-        if self.cupom and self.cupom.esta_valido():
-            percentual = self.cupom.desconto_percentual / Decimal('100')
-            return (subtotal * percentual).quantize(Decimal('0.01'))
-        return Decimal('0.00')
+        Cada cupom desconta somente os itens cujo produto pertence ao vendedor
+        dono dele: um carrinho pode misturar vários vendedores, e o cupom de um
+        não deve baratear o produto de outro. Um cupom vencido, desativado ou
+        sem nenhum item do seu vendedor no carrinho aparece com valor zero.
+        """
+        itens = list(self.itens.select_related('produto'))
+        detalhes = []
+
+        for cupom in self.cupons.select_related('vendedor').order_by('vendedor__nome'):
+            valor = Decimal('0.00')
+            if cupom.esta_valido():
+                base = sum(
+                    (i.subtotal() for i in itens if i.produto.vendedor_id == cupom.vendedor_id),
+                    Decimal('0.00'),
+                )
+                percentual = cupom.desconto_percentual / Decimal('100')
+                valor = (base * percentual).quantize(Decimal('0.01'))
+            detalhes.append((cupom, valor))
+
+        return detalhes
+
+    def calcular_desconto(self):
+        """Valor total (em R$) de desconto: a soma do desconto de cada cupom aplicado."""
+        # Pedido já finalizado: vale a "foto" gravada na finalização, para que
+        # mudanças posteriores nos cupons não alterem o histórico.
+        if self.status == Pedido.Status.FINALIZADO and self.desconto_aplicado is not None:
+            return self.desconto_aplicado
+
+        return sum((valor for _, valor in self.detalhar_descontos()), Decimal('0.00'))
 
     def calcular_total(self):
         """
@@ -200,7 +265,7 @@ class Pedido(models.Model):
         Este é o valor que deve aparecer para o cliente no carrinho/checkout.
         """
         subtotal = self.calcular_subtotal()
-        desconto = self.calcular_desconto(subtotal)
+        desconto = self.calcular_desconto()
         total = subtotal - desconto
         # Nunca deixamos o total ficar negativo, por segurança.
         return max(total, Decimal('0.00'))
@@ -236,10 +301,12 @@ class Pedido(models.Model):
             produto.estoque -= item.quantidade
             produto.save(update_fields=['estoque'])
 
-        # 3) Atualizamos o status e a data de finalização do pedido.
+        # 3) Guardamos o desconto como está agora (ainda com status ABERTO, o
+        #    cálculo é "ao vivo") e só então atualizamos o status e a data.
+        self.desconto_aplicado = self.calcular_desconto()
         self.status = Pedido.Status.FINALIZADO
         self.finalizado_em = timezone.now()
-        self.save(update_fields=['status', 'finalizado_em'])
+        self.save(update_fields=['status', 'finalizado_em', 'desconto_aplicado'])
 
 
 # ============================================================================

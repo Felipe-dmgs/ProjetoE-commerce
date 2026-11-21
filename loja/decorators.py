@@ -17,3 +17,13 @@ def vendedor_required(view_func):
         return view_func(request, *args, **kwargs)
 
     return view_protegida
+
+
+def vendedor_atual(request):
+    """
+    Único lugar que define QUEM é o dono dos dados na área do vendedor.
+    Todas as consultas e criações dessa área partem daqui (e nunca de um id
+    vindo da URL ou do formulário). Só use depois de @vendedor_required, que
+    garante que o usuário está logado e tem perfil de vendedor.
+    """
+    return request.user.perfil_vendedor

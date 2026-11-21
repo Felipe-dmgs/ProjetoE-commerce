@@ -24,7 +24,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 from django.db.models import Q
 from .cart import Carrinho
-from .decorators import vendedor_required
+from .decorators import vendedor_atual, vendedor_required
 from .forms import (
     AdicionarAoCarrinhoForm,
     AplicarCupomForm,
@@ -121,13 +121,41 @@ def ver_carrinho(request):
     if request.method == 'POST' and 'aplicar_cupom' in request.POST and form_cupom.is_valid():
         codigo = form_cupom.cleaned_data['codigo'].strip()
         if codigo:
-            cupom = Cupom.objects.filter(codigo__iexact=codigo).first()
-            if cupom and cupom.esta_valido():
-                carrinho.pedido.cupom = cupom
-                carrinho.pedido.save(update_fields=['cupom'])
-                messages.success(request, f'Cupom "{cupom.codigo}" aplicado!')
+            # Todo cupom pertence a UM vendedor. Só consideramos cupons dos
+            # vendedores que têm algum produto neste carrinho. Se vários deles
+            # tiverem o MESMO código, todos são aplicados: cada um desconta os
+            # itens do seu vendedor.
+            vendedores_do_carrinho = set(
+                carrinho.itens().values_list('produto__vendedor_id', flat=True)
+            )
+            candidatos = Cupom.objects.filter(
+                codigo__iexact=codigo,
+                vendedor_id__in=vendedores_do_carrinho,
+            ).select_related('vendedor').order_by('pk')
+
+            # No máximo um cupom por vendedor (o mais antigo e válido).
+            novos = {}
+            for cupom in candidatos:
+                if cupom.esta_valido():
+                    novos.setdefault(cupom.vendedor_id, cupom)
+
+            if novos:
+                pedido = carrinho.pedido
+                # O cupom novo SUBSTITUI o que o mesmo vendedor já tinha no
+                # pedido; os cupons de outros vendedores continuam.
+                mantidos = [c for c in pedido.cupons.all() if c.vendedor_id not in novos]
+                pedido.cupons.set(mantidos + list(novos.values()))
+
+                vendedores = ', '.join(c.vendedor.nome for c in novos.values())
+                messages.success(
+                    request,
+                    f'Cupom "{codigo.upper()}" aplicado nos produtos de: {vendedores}.',
+                )
             else:
-                messages.error(request, 'Cupom inválido ou expirado.')
+                messages.error(
+                    request,
+                    'Cupom inválido, expirado ou não se aplica aos produtos do seu carrinho.',
+                )
         return redirect('loja:ver_carrinho')
 
     contexto = {
@@ -135,7 +163,7 @@ def ver_carrinho(request):
         'subtotal': carrinho.subtotal(),
         'desconto': carrinho.pedido.calcular_desconto(),
         'total': carrinho.total(),
-        'cupom_aplicado': carrinho.pedido.cupom,
+        'cupons_aplicados': carrinho.pedido.detalhar_descontos(),
         'form_cupom': form_cupom,
     }
     return render(request, 'loja/carrinho.html', contexto)
@@ -242,37 +270,117 @@ def registro(request):
 # ============================================================================
 # ÁREA DO VENDEDOR
 # ============================================================================
+# Regra de ouro desta área: TODA consulta parte do vendedor logado
+# (`vendedor_atual`) e TODO get_object_or_404 leva o vendedor junto. Assim,
+# trocar o id na URL pelo de um registro de OUTRO vendedor dá 404, como se ele
+# não existisse, em vez de mostrar ou deixar editar dados alheios.
+#
+# Os decorators garantem a ordem: `@vendedor_required` exige login E perfil de
+# vendedor antes de a view rodar.
+
+
+@vendedor_required
+def meus_produtos(request):
+    """Lista TODOS os produtos do vendedor logado (inclusive os inativos)."""
+    produtos = Produto.objects.filter(vendedor=vendedor_atual(request))
+    return render(request, 'loja/meus_produtos.html', {'produtos': produtos})
+
+
 @vendedor_required
 def cadastrar_produto(request):
-    """
-    Página exclusiva de vendedores logados para cadastrar um novo Produto.
-    O `@vendedor_required` (loja/decorators.py) garante duas coisas antes de
-    deixar chegar até aqui: a pessoa está logada E tem um perfil de Vendedor.
-    """
+    """Cadastra um novo Produto em nome do vendedor logado."""
     if request.method == 'POST':
         form = ProdutoForm(request.POST, request.FILES)  # request.FILES: necessário para o upload de imagem
         if form.is_valid():
             produto = form.save(commit=False)  # commit=False: ainda não salva no banco
-            produto.vendedor = request.user.perfil_vendedor  # associa ao vendedor logado
+            produto.vendedor = vendedor_atual(request)  # o dono vem do login, nunca do formulário
             produto.save()
             messages.success(request, f'Produto "{produto.nome}" cadastrado com sucesso!')
-            return redirect('loja:lista_produtos')
+            return redirect('loja:meus_produtos')
     else:
         form = ProdutoForm()
 
-    return render(request, 'loja/produto_form.html', {'form': form})
+    contexto = {
+        'form': form,
+        'titulo_pagina': 'Cadastrar produto',
+        'texto_botao': 'Cadastrar produto',
+        'editando': False,
+    }
+    return render(request, 'loja/produto_form.html', contexto)
+
+
+@vendedor_required
+def editar_produto(request, pk):
+    """Edita um produto, desde que ele seja do vendedor logado (senão, 404)."""
+    produto = get_object_or_404(Produto, pk=pk, vendedor=vendedor_atual(request))
+
+    if request.method == 'POST':
+        form = ProdutoForm(request.POST, request.FILES, instance=produto)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f'Produto "{produto.nome}" atualizado!')
+            return redirect('loja:meus_produtos')
+    else:
+        form = ProdutoForm(instance=produto)
+
+    contexto = {
+        'form': form,
+        'titulo_pagina': 'Editar produto',
+        'texto_botao': 'Salvar alterações',
+        'editando': True,
+    }
+    return render(request, 'loja/produto_form.html', contexto)
+
+
+@vendedor_required
+def meus_cupons(request):
+    """Lista os cupons que o vendedor logado criou (e só os dele)."""
+    cupons = Cupom.objects.filter(vendedor=vendedor_atual(request))
+    return render(request, 'loja/meus_cupons.html', {'cupons': cupons})
 
 
 @vendedor_required
 def cadastrar_cupom(request):
-    """Página exclusiva de vendedores logados para cadastrar um novo Cupom."""
-    if request.method == 'POST':
-        form = CupomCadastroForm(request.POST)
-        if form.is_valid():
-            cupom = form.save()
-            messages.success(request, f'Cupom "{cupom.codigo}" cadastrado com sucesso!')
-            return redirect('loja:lista_produtos')
-    else:
-        form = CupomCadastroForm()
+    """Cadastra um novo Cupom, que passa a pertencer ao vendedor logado."""
+    vendedor = vendedor_atual(request)
 
-    return render(request, 'loja/cupom_form.html', {'form': form})
+    if request.method == 'POST':
+        form = CupomCadastroForm(request.POST, vendedor=vendedor)
+        if form.is_valid():
+            cupom = form.save(commit=False)
+            cupom.vendedor = vendedor  # o dono vem do login, nunca do formulário
+            cupom.save()
+            messages.success(request, f'Cupom "{cupom.codigo}" cadastrado com sucesso!')
+            return redirect('loja:meus_cupons')
+    else:
+        form = CupomCadastroForm(vendedor=vendedor)
+
+    contexto = {
+        'form': form,
+        'titulo_pagina': 'Cadastrar cupom de desconto',
+        'texto_botao': 'Cadastrar cupom',
+    }
+    return render(request, 'loja/cupom_form.html', contexto)
+
+
+@vendedor_required
+def editar_cupom(request, pk):
+    """Edita um cupom, desde que ele seja do vendedor logado (senão, 404)."""
+    vendedor = vendedor_atual(request)
+    cupom = get_object_or_404(Cupom, pk=pk, vendedor=vendedor)
+
+    if request.method == 'POST':
+        form = CupomCadastroForm(request.POST, instance=cupom, vendedor=vendedor)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f'Cupom "{cupom.codigo}" atualizado!')
+            return redirect('loja:meus_cupons')
+    else:
+        form = CupomCadastroForm(instance=cupom, vendedor=vendedor)
+
+    contexto = {
+        'form': form,
+        'titulo_pagina': 'Editar cupom',
+        'texto_botao': 'Salvar alterações',
+    }
+    return render(request, 'loja/cupom_form.html', contexto)

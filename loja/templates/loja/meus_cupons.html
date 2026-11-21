@@ -1,0 +1,47 @@
+{% extends 'loja/base.html' %}
+
+{% block titulo %}Meus cupons{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">Meus cupons</h1>
+    <a href="{% url 'loja:cadastrar_cupom' %}" class="btn btn-success">+ Novo cupom</a>
+</div>
+
+{% if cupons %}
+<table class="table align-middle">
+    <thead>
+        <tr>
+            <th>Código</th>
+            <th>Desconto</th>
+            <th>Validade</th>
+            <th>Situação</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for cupom in cupons %}
+        <tr>
+            <td class="fw-bold">{{ cupom.codigo }}</td>
+            <td>{{ cupom.desconto_percentual }}%</td>
+            <td>{{ cupom.validade|date:"d/m/Y" }}</td>
+            <td>
+                {% if cupom.esta_valido %}
+                    <span class="badge text-bg-success">Válido</span>
+                {% elif not cupom.ativo %}
+                    <span class="badge text-bg-secondary">Inativo</span>
+                {% else %}
+                    <span class="badge text-bg-danger">Expirado</span>
+                {% endif %}
+            </td>
+            <td class="text-end">
+                <a href="{% url 'loja:editar_cupom' cupom.pk %}" class="btn btn-sm btn-outline-secondary">Editar</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+    <p class="alert alert-info">Você ainda não criou nenhum cupom. Eles valem só para os seus produtos.</p>
+{% endif %}
+{% endblock %}

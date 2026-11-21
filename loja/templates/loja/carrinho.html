@@ -83,8 +83,20 @@
             </div>
         </form>
 
-        {% if cupom_aplicado %}
-            <p class="text-success small fw-bold">Cupom aplicado: {{ cupom_aplicado.codigo }}</p>
+        {% if cupons_aplicados %}
+            <ul class="list-unstyled small mb-3">
+                {% for cupom, valor in cupons_aplicados %}
+                    <li class="{% if valor == 0 %}text-warning{% else %}text-success{% endif %}">
+                        <span class="fw-bold">{{ cupom.codigo }}</span>
+                        em produtos de {{ cupom.vendedor.nome }}:
+                        {% if valor == 0 %}
+                            sem efeito agora (expirou ou não há itens desse vendedor)
+                        {% else %}
+                            - R$ {{ valor }}
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
         {% endif %}
 
         <table class="table">
