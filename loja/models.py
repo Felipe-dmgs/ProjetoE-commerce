@@ -16,7 +16,7 @@ Entidades pedidas no enunciado:
 from decimal import Decimal
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.core.validators import MinValueValidator
 from django.utils import timezone
 
@@ -176,8 +176,23 @@ class Pedido(models.Model):
         FINALIZADO = 'FINALIZADO', 'Finalizado'
         CANCELADO = 'CANCELADO', 'Cancelado'
 
-    # Dados simples do cliente. Como esta entrega ainda não pede login/cadastro
-    # de usuários, guardamos só nome/e-mail para identificar quem fez o pedido.
+    # Dono do pedido: o usuário logado que comprou. Enquanto o pedido é só um
+    # carrinho ABERTO, ele já pertence ao usuário logado (é assim que o carrinho
+    # sobrevive ao logout/login). `null=True` porque os pedidos feitos ANTES
+    # desta mudança não tinham dono: eles continuam no banco, mas ficam fora das
+    # telas "Meus pedidos" e "Pedidos recebidos" (que filtram por cliente).
+    # SET_NULL: se a conta for apagada, o histórico de vendas do vendedor fica.
+    cliente = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name='pedidos',
+        null=True,
+        blank=True,
+    )
+
+    # Nome/e-mail digitados no checkout. Ficam gravados no pedido (e não só no
+    # usuário) porque são a "foto" dos dados de contato daquela compra: é o que
+    # o vendedor enxerga em "Pedidos recebidos".
     cliente_nome = models.CharField(max_length=150, blank=True)
     cliente_email = models.EmailField(blank=True)
 
@@ -275,38 +290,64 @@ class Pedido(models.Model):
     # ------------------------------------------------------------------
     def finalizar(self):
         """
-        Confirma o pedido:
-          1. Verifica se todos os itens ainda têm estoque suficiente
-             (protege contra o caso de dois clientes comprarem ao mesmo tempo).
-          2. Dá baixa no estoque de cada produto.
-          3. Muda o status do pedido para FINALIZADO.
+        Confirma o pedido, tudo dentro de UMA transação:
+          1. Trava (select_for_update) o pedido e os produtos envolvidos.
+          2. Rechecagem do estoque com os produtos já travados.
+          3. Dá baixa no estoque de cada produto.
+          4. Muda o status do pedido para FINALIZADO.
 
-        Levanta ValueError se algum item não tiver estoque suficiente, para que
-        a view possa capturar o erro e avisar o usuário.
+        Por que a trava? Sem ela, dois clientes comprando o último item ao
+        mesmo tempo leem o mesmo estoque, ambos passam na validação e o estoque
+        fica negativo. Com select_for_update, o segundo cliente ESPERA o
+        primeiro terminar e então lê o estoque já atualizado.
+
+        Levanta ValueError se algum item não tiver estoque suficiente (ou se o
+        pedido já foi finalizado), para que a view possa capturar o erro e
+        avisar o usuário. Como tudo está no atomic(), um erro no meio desfaz
+        qualquer baixa de estoque já feita: ou vale tudo, ou não vale nada.
         """
-        itens = list(self.itens.select_related('produto'))
+        with transaction.atomic():
+            # Trava o próprio pedido: se o usuário clicar duas vezes em
+            # "Confirmar", a segunda requisição espera, vê o status já
+            # FINALIZADO e não dá baixa no estoque de novo.
+            atual = Pedido.objects.select_for_update().get(pk=self.pk)
+            if atual.status != Pedido.Status.ABERTO:
+                raise ValueError('Este pedido já foi finalizado.')
 
-        # 1) Primeiro validamos TUDO, antes de alterar qualquer estoque.
-        #    Assim evitamos dar baixa em alguns produtos e falhar no meio do processo.
-        for item in itens:
-            if not item.produto.tem_estoque(item.quantidade):
-                raise ValueError(
-                    f'Estoque insuficiente para "{item.produto.nome}". '
-                    f'Disponível: {item.produto.estoque}, solicitado: {item.quantidade}.'
-                )
+            itens = list(self.itens.all())
 
-        # 2) Agora sim, damos baixa no estoque de cada produto.
-        for item in itens:
-            produto = item.produto
-            produto.estoque -= item.quantidade
-            produto.save(update_fields=['estoque'])
+            # Travamos os produtos sempre na mesma ordem (pk) para duas compras
+            # com produtos em comum nunca ficarem esperando uma à outra
+            # (deadlock). Usamos ESTES objetos, lidos depois da trava, e não os
+            # que vieram do carrinho, que podem estar desatualizados.
+            produtos = {
+                produto.pk: produto
+                for produto in Produto.objects.select_for_update()
+                .filter(pk__in=[item.produto_id for item in itens])
+                .order_by('pk')
+            }
 
-        # 3) Guardamos o desconto como está agora (ainda com status ABERTO, o
-        #    cálculo é "ao vivo") e só então atualizamos o status e a data.
-        self.desconto_aplicado = self.calcular_desconto()
-        self.status = Pedido.Status.FINALIZADO
-        self.finalizado_em = timezone.now()
-        self.save(update_fields=['status', 'finalizado_em', 'desconto_aplicado'])
+            # Primeiro validamos TUDO, antes de alterar qualquer estoque.
+            for item in itens:
+                produto = produtos[item.produto_id]
+                if not produto.tem_estoque(item.quantidade):
+                    raise ValueError(
+                        f'Estoque insuficiente para "{produto.nome}". '
+                        f'Disponível: {produto.estoque}, solicitado: {item.quantidade}.'
+                    )
+
+            # Agora sim, damos baixa no estoque de cada produto.
+            for item in itens:
+                produto = produtos[item.produto_id]
+                produto.estoque -= item.quantidade
+                produto.save(update_fields=['estoque'])
+
+            # Guardamos o desconto como está agora (ainda com status ABERTO, o
+            # cálculo é "ao vivo") e só então atualizamos o status e a data.
+            self.desconto_aplicado = self.calcular_desconto()
+            self.status = Pedido.Status.FINALIZADO
+            self.finalizado_em = timezone.now()
+            self.save(update_fields=['status', 'finalizado_em', 'desconto_aplicado'])
 
 
 # ============================================================================

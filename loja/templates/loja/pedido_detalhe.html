@@ -1,0 +1,55 @@
+{% extends 'loja/base.html' %}
+
+{% block titulo %}Pedido #{{ pedido.pk }}{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">Pedido #{{ pedido.pk }}</h1>
+    <a href="{% url 'loja:meus_pedidos' %}" class="btn btn-outline-secondary">Voltar para Meus pedidos</a>
+</div>
+
+<p class="text-muted">Finalizado em {{ pedido.finalizado_em|date:"d/m/Y H:i" }}</p>
+
+<table class="table align-middle">
+    <thead>
+        <tr>
+            <th>Produto</th>
+            <th>Vendedor</th>
+            <th>Preço unit.</th>
+            <th>Quantidade</th>
+            <th class="text-end">Subtotal</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in itens %}
+        <tr>
+            <td>{{ item.produto.nome }}</td>
+            <td>{{ item.produto.vendedor.nome }}</td>
+            {# preco_unitario é o preço gravado na compra, não o preço atual do produto #}
+            <td>R$ {{ item.preco_unitario }}</td>
+            <td>{{ item.quantidade }}</td>
+            <td class="text-end">R$ {{ item.subtotal }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="row justify-content-end">
+    <div class="col-md-4">
+        <table class="table">
+            <tr>
+                <td>Subtotal</td>
+                <td class="text-end">R$ {{ subtotal }}</td>
+            </tr>
+            <tr>
+                <td>Desconto</td>
+                <td class="text-end">- R$ {{ desconto }}</td>
+            </tr>
+            <tr class="fw-bold fs-5">
+                <td>Total</td>
+                <td class="text-end">R$ {{ total }}</td>
+            </tr>
+        </table>
+    </div>
+</div>
+{% endblock %}

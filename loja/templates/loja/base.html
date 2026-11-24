@@ -39,10 +39,13 @@
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{% url 'loja:meus_cupons' %}">Meus cupons</a></li>
                             <li><a class="dropdown-item" href="{% url 'loja:cadastrar_cupom' %}">+ Novo cupom</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{% url 'loja:pedidos_recebidos' %}">Pedidos recebidos</a></li>
                         </ul>
                     </div>
                 {% endif %}
 
+                <a href="{% url 'loja:meus_pedidos' %}" class="btn btn-outline-light btn-sm">Meus pedidos</a>
                 <a href="{% url 'loja:ver_carrinho' %}" class="btn btn-outline-light">🛒 Carrinho</a>
 
                 <span class="text-light small">Olá, {{ user.username }}</span>

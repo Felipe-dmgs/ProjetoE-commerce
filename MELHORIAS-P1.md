@@ -79,8 +79,8 @@ roteiro de isolamento.
 
 | # | Melhoria | Situação |
 |---|----------|----------|
-| 1 | Pedidos vinculados ao usuário | Pendente |
+| 1 | Pedidos vinculados ao usuário | Concluída (etapa 2) |
 | 2 | Cupom exclusivo do vendedor | Concluída (etapa 1) |
-| 3 | Estoque acumulado e baixa atômica | Pendente |
-| 4 | Carrinho preservado no login | Pendente |
+| 3 | Estoque acumulado e baixa atômica | Concluída (etapa 2) |
+| 4 | Carrinho preservado no login | Concluída (etapa 2) |
 | 5 | Limpeza de código e README | Pendente |

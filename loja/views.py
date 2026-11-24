@@ -15,25 +15,31 @@ Fluxo desta primeira entrega:
     6. `pedido_confirmado`   -> página de sucesso, mostrando o resumo do pedido
 """
 
+from decimal import Decimal
+
 from django.contrib import messages
 from django.contrib.auth import login
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.views import LoginView
 from django.db import connection
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
-from django.db.models import Q
-from .cart import Carrinho
+from django.db.models import Prefetch, Q
+from .cart import Carrinho, unir_carrinho_anonimo
 from .decorators import vendedor_atual, vendedor_required
 from .forms import (
     AdicionarAoCarrinhoForm,
     AplicarCupomForm,
     CupomCadastroForm,
     FinalizarPedidoForm,
+    LoginForm,
     ProdutoForm,
     RegistroForm,
 )
-from .models import Cupom, Pedido, Produto
+from .models import Cupom, ItemPedido, Pedido, Produto
 
 def healthcheck(request):
     """
@@ -90,8 +96,14 @@ def adicionar_ao_carrinho(request, produto_id):
     if form.is_valid():
         quantidade = form.cleaned_data['quantidade']
         carrinho = Carrinho(request)
-        carrinho.adicionar(produto, quantidade)
-        messages.success(request, f'"{produto.nome}" adicionado ao carrinho.')
+        try:
+            carrinho.adicionar(produto, quantidade)
+        except ValueError as erro:
+            # A soma do que já estava no carrinho com o novo pedido passou do
+            # estoque: o carrinho não muda e avisamos o usuário.
+            messages.error(request, str(erro))
+        else:
+            messages.success(request, f'"{produto.nome}" adicionado ao carrinho.')
     else:
         for erro in form.errors.values():
             messages.error(request, erro.as_text())
@@ -108,12 +120,20 @@ def ver_carrinho(request):
 
     # --- Atualização de quantidade (POST vindo dos inputs de quantidade) ---
     if request.method == 'POST' and 'atualizar' in request.POST:
-        produto_id = request.POST.get('produto_id')
         try:
             nova_quantidade = int(request.POST.get('quantidade', 1))
         except (TypeError, ValueError):
             nova_quantidade = 1
-        carrinho.atualizar_quantidade(produto_id, nova_quantidade)
+        try:
+            produto_id = int(request.POST.get('produto_id'))
+        except (TypeError, ValueError):
+            # id adulterado/ausente: não há o que atualizar.
+            return redirect('loja:ver_carrinho')
+        try:
+            carrinho.atualizar_quantidade(produto_id, nova_quantidade)
+        except ValueError as erro:
+            # Quantidade acima do estoque: mantém a anterior e avisa.
+            messages.error(request, str(erro))
         return redirect('loja:ver_carrinho')
 
     # --- Aplicação de cupom ---
@@ -178,11 +198,12 @@ def remover_do_carrinho(request, produto_id):
     return redirect('loja:ver_carrinho')
 
 
+@login_required  # sem login o Django manda para /entrar/?next=/finalizar/ e volta aqui depois
 def finalizar_pedido(request):
     """
     Tela de checkout: pede nome/e-mail do cliente e, ao confirmar,
     chama `Pedido.finalizar()`, que faz a BAIXA DE ESTOQUE e marca o
-    pedido como FINALIZADO.
+    pedido como FINALIZADO. O pedido passa a pertencer ao usuário logado.
     """
     carrinho = Carrinho(request)
 
@@ -195,9 +216,11 @@ def finalizar_pedido(request):
         form = FinalizarPedidoForm(request.POST)
         if form.is_valid():
             pedido = carrinho.pedido
+            # O dono vem do login, nunca do formulário.
+            pedido.cliente = request.user
             pedido.cliente_nome = form.cleaned_data['nome']
             pedido.cliente_email = form.cleaned_data['email']
-            pedido.save(update_fields=['cliente_nome', 'cliente_email'])
+            pedido.save(update_fields=['cliente', 'cliente_nome', 'cliente_email'])
 
             try:
                 pedido.finalizar()
@@ -209,7 +232,11 @@ def finalizar_pedido(request):
 
             return redirect(reverse('loja:pedido_confirmado', args=[pedido.pk]))
     else:
-        form = FinalizarPedidoForm()
+        # Sugerimos os dados da conta para a pessoa não digitar tudo de novo.
+        form = FinalizarPedidoForm(initial={
+            'nome': request.user.get_full_name() or request.user.username,
+            'email': request.user.email,
+        })
 
     contexto = {
         'form': form,
@@ -219,9 +246,17 @@ def finalizar_pedido(request):
     return render(request, 'loja/finalizar_pedido.html', contexto)
 
 
+@login_required
 def pedido_confirmado(request, pedido_id):
     """Página final, mostrando o resumo do pedido já finalizado."""
-    pedido = get_object_or_404(Pedido, id=pedido_id, status=Pedido.Status.FINALIZADO)
+    # O pedido tem que ser do usuário logado: trocar o id na URL pelo de um
+    # pedido de outro cliente dá 404.
+    pedido = get_object_or_404(
+        Pedido,
+        id=pedido_id,
+        cliente=request.user,
+        status=Pedido.Status.FINALIZADO,
+    )
     contexto = {
         'pedido': pedido,
         'itens': pedido.itens.select_related('produto'),
@@ -233,12 +268,51 @@ def pedido_confirmado(request, pedido_id):
 # ============================================================================
 # AUTENTICAÇÃO
 # ============================================================================
+class EntrarView(LoginView):
+    """
+    Mesma tela de login do Django, com um passo a mais: levar o carrinho que a
+    pessoa montou ANTES de entrar para a conta dela.
+
+    O carrinho anônimo está preso à session_key, e o login() troca essa chave.
+    Por isso lemos a chave antiga ANTES de chamar o `form_valid` original (que
+    é quem executa o login) e só depois fazemos a união dos carrinhos.
+    """
+
+    template_name = 'loja/login.html'
+    authentication_form = LoginForm
+
+    def form_valid(self, form):
+        chave_antiga = self.request.session.session_key
+        resposta = super().form_valid(form)  # aqui o login() acontece e a chave muda
+        unir_carrinho_anonimo(chave_antiga, self.request.user)
+        return resposta
+
+
+def _proximo_seguro(request):
+    """
+    Lê o parâmetro `next` (ex.: /finalizar/) e só o devolve se for um endereço
+    deste mesmo site. Sem essa checagem, um link malicioso poderia mandar a
+    pessoa, logo após o cadastro, para um site de terceiros (open redirect).
+    Devolve '' quando não há `next` ou ele não é seguro.
+    """
+    destino = request.POST.get('next') or request.GET.get('next') or ''
+    if destino and url_has_allowed_host_and_scheme(
+        destino,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return destino
+    return ''
+
+
 def registro(request):
     """
     Tela de cadastro: nome de usuário + senha + dropdown "Cliente/Vendedor".
     Se a pessoa escolher "Vendedor", o próprio RegistroForm já cria o
     registro de Vendedor ligado à conta (ver forms.RegistroForm.save()).
     """
+    proximo = _proximo_seguro(request)
+
     # Se a pessoa já está logada, não faz sentido mostrar a tela de cadastro.
     if request.user.is_authenticated:
         return redirect('loja:lista_produtos')
@@ -247,9 +321,13 @@ def registro(request):
         form = RegistroForm(request.POST)
         if form.is_valid():
             usuario = form.save()
+            # A chave da sessão precisa ser lida ANTES do login(), que a troca:
+            # é por ela que achamos o carrinho que a pessoa já tinha montado.
+            chave_antiga = request.session.session_key
             # Loga a pessoa automaticamente após o cadastro, para ela já
             # cair "dentro" do site sem precisar preencher o login de novo.
             login(request, usuario)
+            unir_carrinho_anonimo(chave_antiga, usuario)
 
             if form.cleaned_data['tipo'] == RegistroForm.TIPO_VENDEDOR:
                 messages.success(
@@ -260,11 +338,54 @@ def registro(request):
             else:
                 messages.success(request, f'Conta criada! Bem-vindo(a), {usuario.username}.')
 
-            return redirect('loja:lista_produtos')
+            # Volta para onde a pessoa estava indo (ex.: o checkout), se houver.
+            return redirect(proximo or 'loja:lista_produtos')
     else:
         form = RegistroForm()
 
-    return render(request, 'loja/registro.html', {'form': form})
+    return render(request, 'loja/registro.html', {'form': form, 'next': proximo})
+
+
+# ============================================================================
+# ÁREA DO CLIENTE: MEUS PEDIDOS
+# ============================================================================
+# Mesma regra de ouro da área do vendedor, agora com o CLIENTE logado como
+# dono: toda consulta parte de `request.user` e o get_object_or_404 leva o
+# cliente junto, então o pedido de outra pessoa dá 404. Pedidos antigos, sem
+# cliente, nunca aparecem aqui (o filtro por cliente=request.user os exclui).
+
+
+@login_required
+def meus_pedidos(request):
+    """Lista os pedidos FINALIZADOS do usuário logado, do mais recente ao mais antigo."""
+    pedidos = (
+        Pedido.objects
+        .filter(cliente=request.user, status=Pedido.Status.FINALIZADO)
+        .prefetch_related('itens')  # o total de cada linha soma os itens: evita 1 consulta por pedido
+        .order_by('-finalizado_em', '-pk')
+    )
+    return render(request, 'loja/meus_pedidos.html', {'pedidos': pedidos})
+
+
+@login_required
+def detalhe_pedido(request, pk):
+    """Detalhe de um pedido do usuário logado (de outro cliente ou aberto: 404)."""
+    pedido = get_object_or_404(
+        Pedido,
+        pk=pk,
+        cliente=request.user,
+        status=Pedido.Status.FINALIZADO,
+    )
+    contexto = {
+        'pedido': pedido,
+        'itens': pedido.itens.select_related('produto__vendedor'),
+        'subtotal': pedido.calcular_subtotal(),
+        # Pedido finalizado: calcular_desconto devolve o desconto_aplicado
+        # gravado na finalização, e não recalcula com os cupons de hoje.
+        'desconto': pedido.calcular_desconto(),
+        'total': pedido.calcular_total(),
+    }
+    return render(request, 'loja/pedido_detalhe.html', contexto)
 
 
 # ============================================================================
@@ -384,3 +505,79 @@ def editar_cupom(request, pk):
         'texto_botao': 'Salvar alterações',
     }
     return render(request, 'loja/cupom_form.html', contexto)
+
+
+@vendedor_required
+def pedidos_recebidos(request):
+    """
+    Lista os pedidos FINALIZADOS que têm pelo menos um produto do vendedor
+    logado. Cada linha mostra só o subtotal dos itens DELE: o pedido pode ter
+    itens de outros vendedores, que ele não pode ver (nem somar).
+    """
+    vendedor = vendedor_atual(request)
+
+    # Só os itens deste vendedor entram no pré-carregamento (to_attr), então
+    # não existe caminho para itens de outros vendedores chegarem ao template.
+    itens_do_vendedor = ItemPedido.objects.filter(
+        produto__vendedor=vendedor
+    ).select_related('produto')
+
+    pedidos = list(
+        Pedido.objects
+        .filter(
+            status=Pedido.Status.FINALIZADO,
+            cliente__isnull=False,  # pedidos antigos, sem cliente, ficam de fora
+            itens__produto__vendedor=vendedor,
+        )
+        # O join com os itens repete o pedido uma vez por item do vendedor;
+        # distinct() devolve cada pedido uma vez só.
+        .distinct()
+        .prefetch_related(
+            Prefetch('itens', queryset=itens_do_vendedor, to_attr='itens_do_vendedor')
+        )
+        .order_by('-finalizado_em', '-pk')
+    )
+
+    for pedido in pedidos:
+        pedido.subtotal_vendedor = sum(
+            (item.subtotal() for item in pedido.itens_do_vendedor), Decimal('0.00')
+        )
+
+    return render(request, 'loja/pedidos_recebidos.html', {'pedidos': pedidos})
+
+
+@vendedor_required
+def detalhe_pedido_recebido(request, pk):
+    """
+    Detalhe de um pedido recebido: mostra SÓ os itens do vendedor logado, o
+    subtotal deles e os dados de contato do cliente. Pedido sem nenhum produto
+    do vendedor dá 404, como se não existisse.
+    """
+    vendedor = vendedor_atual(request)
+
+    # O queryset já nasce restrito aos pedidos que têm produto do vendedor;
+    # distinct() evita que o join devolva o mesmo pedido várias vezes (e o
+    # .get() do get_object_or_404 estourar com MultipleObjectsReturned).
+    pedidos_do_vendedor = Pedido.objects.filter(
+        itens__produto__vendedor=vendedor
+    ).distinct()
+    pedido = get_object_or_404(
+        pedidos_do_vendedor,
+        pk=pk,
+        status=Pedido.Status.FINALIZADO,
+        cliente__isnull=False,
+    )
+
+    itens = list(
+        ItemPedido.objects
+        .filter(pedido=pedido, produto__vendedor=vendedor)
+        .select_related('produto')
+    )
+    subtotal = sum((item.subtotal() for item in itens), Decimal('0.00'))
+
+    contexto = {
+        'pedido': pedido,
+        'itens': itens,
+        'subtotal': subtotal,
+    }
+    return render(request, 'loja/pedido_recebido_detalhe.html', contexto)

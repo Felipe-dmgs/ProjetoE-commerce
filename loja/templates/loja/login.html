@@ -29,7 +29,8 @@
         </form>
 
         <p class="mt-3 text-center">
-            Ainda não tem conta? <a href="{% url 'loja:registro' %}">Cadastre-se</a>
+            {# Leva o `next` junto: quem veio do checkout volta para ele depois de se cadastrar #}
+            Ainda não tem conta? <a href="{% url 'loja:registro' %}{% if next %}?next={{ next|urlencode }}{% endif %}">Cadastre-se</a>
         </p>
     </div>
 </div>

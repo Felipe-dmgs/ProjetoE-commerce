@@ -9,6 +9,8 @@
 
         <form method="post">
             {% csrf_token %}
+            {# `next` já validado pela view (_proximo_seguro): para onde ir depois do cadastro #}
+            {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
 
             {# Percorremos os campos manualmente (em vez de {{ form.as_p }}) só #}
             {# para conseguir controlar o HTML/Bootstrap ao redor de cada um. #}
@@ -29,7 +31,7 @@
         </form>
 
         <p class="mt-3 text-center">
-            Já tem conta? <a href="{% url 'loja:login' %}">Entrar</a>
+            Já tem conta? <a href="{% url 'loja:login' %}{% if next %}?next={{ next|urlencode }}{% endif %}">Entrar</a>
         </p>
     </div>
 </div>
