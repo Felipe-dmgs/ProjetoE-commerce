@@ -26,6 +26,8 @@ urlpatterns = [
     # EntrarView = LoginView do Django + união do carrinho anônimo com o do usuário
     path('entrar/', views.EntrarView.as_view(), name='login'),
     path('sair/', auth_views.LogoutView.as_view(next_page='loja:lista_produtos'), name='logout'),
+    path('vendedor/dashboard/', views.dashboard, name='dashboard'),
+    path('vendedor/dashboard/exportar/', views.exportar_dashboard_csv, name='dashboard_exportar'),
     path('vendedor/produtos/', views.meus_produtos, name='meus_produtos'),
     path('vendedor/produtos/novo/', views.cadastrar_produto, name='cadastrar_produto'),
     path('vendedor/produtos/<int:pk>/editar/', views.editar_produto, name='editar_produto'),

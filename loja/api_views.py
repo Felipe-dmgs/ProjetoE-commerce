@@ -1,7 +1,10 @@
 from django.db.models import Prefetch, ProtectedError
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from .dashboard import montar_dashboard, periodo_da_requisicao
 from .decorators import vendedor_atual
 from .models import Cupom, ItemPedido, Pedido, Produto
 from .permissions import IsVendedor
@@ -105,3 +108,27 @@ class PedidoListAPIView(PedidoQuerysetMixin, generics.ListAPIView):
 
 class PedidoDetailAPIView(PedidoQuerysetMixin, generics.RetrieveAPIView):
     """GET de um pedido visível para o usuário logado (de outra pessoa: 404)."""
+
+
+class DashboardAPIView(APIView):
+    """
+    GET /api/dashboard/?de=AAAA-MM-DD&ate=AAAA-MM-DD  (padrão: mês atual)
+
+    As mesmas métricas da tela, geradas pelas mesmas funções de
+    loja/dashboard.py. Só vendedor acessa (IsVendedor) e só vê os próprios
+    números. Como só existe get(), POST/PUT/DELETE respondem 405.
+    """
+    permission_classes = [IsVendedor]
+
+    def get(self, request):
+        form, de, ate = periodo_da_requisicao(request.GET)
+        if not form.is_valid():
+            # Na API, período inválido é erro 400 (a tela, ao contrário, mostra
+            # um aviso e usa o mês atual).
+            erros = {}
+            for campo, lista in form.errors.get_json_data().items():
+                erros['periodo' if campo == '__all__' else campo] = [e['message'] for e in lista]
+            return Response(erros, status=400)
+
+        # Decimal e date são convertidos para texto pelo renderizador do DRF.
+        return Response(montar_dashboard(vendedor_atual(request), de, ate))

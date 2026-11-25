@@ -34,6 +34,8 @@
                             Área do vendedor
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="{% url 'loja:dashboard' %}">Dashboard</a></li>
+                            <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="{% url 'loja:meus_produtos' %}">Meus produtos</a></li>
                             <li><a class="dropdown-item" href="{% url 'loja:cadastrar_produto' %}">+ Novo produto</a></li>
                             <li><hr class="dropdown-divider"></li>
@@ -82,5 +84,7 @@
 <!-- JS do Bootstrap (necessário para os alerts fecharem, dropdowns, etc.) -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="{% static 'loja/js/carrinho.js' %}"></script>
+{# Cada página pode carregar seus próprios scripts aqui (ex.: gráficos do dashboard) #}
+{% block scripts %}{% endblock %}
 </body>
 </html>

@@ -13,7 +13,8 @@ O que mudou da P1 para a P2:
 - **Estoque protegido**: a quantidade acumulada no carrinho é validada e a baixa de estoque é atômica.
 - **Carrinho preservado no login**: o carrinho montado antes de entrar passa para a conta.
 - **API REST** em `/api/` para produtos, cupons e pedidos.
-- **Dashboard**: veja a seção [Dashboard](#dashboard).
+- **Dashboard do vendedor**: totais, ranking, série no tempo e estoque, com filtro por período, exportação em CSV e API (veja [Dashboard](#dashboard)).
+- **Desconto por vendedor gravado**: ao finalizar, cada cupom aplicado vira uma linha em `DescontoCupom`, o que permite mostrar quanto cada vendedor concedeu.
 
 O histórico das correções feitas na P1 está em [`MELHORIAS-P1.md`](MELHORIAS-P1.md).
 
@@ -81,7 +82,9 @@ Ao iniciar, o `entrypoint.sh` espera o Postgres responder, roda `makemigrations`
 | http://localhost:8000/entrar/ | Login |
 | http://localhost:8000/admin/ | Painel administrativo do Django |
 | http://localhost:8000/healthz/ | Healthcheck (usado pelo Docker) |
+| http://localhost:8000/vendedor/dashboard/ | Dashboard do vendedor (exige conta de vendedor) |
 | http://localhost:8000/api/produtos/ | API (Browsable API do DRF) |
+| http://localhost:8000/api/dashboard/ | API do dashboard (exige conta de vendedor) |
 | http://localhost:8000/api-auth/login/ | Login da Browsable API |
 
 ### Atenção: as migrations não são versionadas
@@ -117,11 +120,12 @@ python manage.py runserver
 │   ├── settings.py          -> apps, banco (Postgres), DRF com autenticação por sessão, WhiteNoise
 │   └── urls.py              -> rotas raiz: /admin/, /healthz/, /api/, /api-auth/ e o app loja
 ├── loja/                    -> app único do projeto
-│   ├── models.py            -> Vendedor, Produto, Cupom, Pedido e ItemPedido (regras de negócio)
+│   ├── models.py            -> Vendedor, Produto, Cupom, Pedido, ItemPedido e DescontoCupom (regras de negócio)
 │   ├── cart.py              -> classe Carrinho (Pedido ABERTO) e união do carrinho anônimo no login
+│   ├── dashboard.py         -> métricas do dashboard (usadas pela tela, pelo CSV e pela API)
 │   ├── decorators.py        -> @vendedor_required e vendedor_atual(request)
 │   ├── validators.py        -> regras de cupom compartilhadas entre formulário e API
-│   ├── forms.py             -> formulários (cadastro, login, produto, cupom, carrinho, checkout)
+│   ├── forms.py             -> formulários (cadastro, login, produto, cupom, carrinho, checkout, período)
 │   ├── views.py             -> views HTML: vitrine, carrinho, checkout, área do cliente e do vendedor
 │   ├── urls.py              -> rotas do site (namespace "loja:")
 │   ├── api_views.py         -> views da API REST (generics do DRF)
@@ -133,7 +137,7 @@ python manage.py runserver
 │   ├── admin.py             -> registro dos models no /admin/
 │   ├── migrations/          -> só o __init__.py: as migrations são geradas no container
 │   ├── templates/loja/      -> HTML (base, vitrine, carrinho, checkout, telas do cliente e do vendedor)
-│   └── static/loja/         -> CSS e JavaScript
+│   └── static/loja/         -> CSS e JavaScript (carrinho.js e dashboard.js, com os gráficos)
 ├── Dockerfile               -> imagem do container "web" (Django + Gunicorn)
 ├── entrypoint.sh            -> espera o banco, migra, coleta estáticos e sobe o Gunicorn
 ├── docker-compose.yml       -> serviços "db" (Postgres) e "web" (Django), com healthcheck
@@ -154,6 +158,9 @@ erDiagram
     PEDIDO ||--o{ ITEMPEDIDO : "contem"
     PRODUTO ||--o{ ITEMPEDIDO : "aparece em"
     PEDIDO }o--o{ CUPOM : "cupons (no maximo 1 por vendedor)"
+    PEDIDO ||--o{ DESCONTOCUPOM : "desconto por cupom (gravado ao finalizar)"
+    VENDEDOR ||--o{ DESCONTOCUPOM : "concedeu"
+    CUPOM |o--o{ DESCONTOCUPOM : "origem (SET NULL)"
 
     VENDEDOR {
         int id PK
@@ -194,6 +201,15 @@ erDiagram
         int quantidade
         decimal preco_unitario "gravado ao adicionar"
     }
+    DESCONTOCUPOM {
+        int id PK
+        int pedido_id FK
+        int vendedor_id FK "dono do cupom"
+        int cupom_id FK "pode ficar nulo"
+        string codigo "copia do cupom"
+        decimal percentual "copia do cupom"
+        decimal valor "desconto concedido no pedido"
+    }
 ```
 
 O `Vendedor` é o perfil de uma conta (`user.perfil_vendedor`); quem se cadastra como *Vendedor* ganha esse registro automaticamente. Quem não tem `Vendedor` é cliente.
@@ -218,7 +234,7 @@ O `Vendedor` é o perfil de uma conta (`user.perfil_vendedor`); quem se cadastra
 - O pedido aceita um cupom por vendedor (`Pedido.cupons`). Se vários vendedores do carrinho tiverem o mesmo código, todos são aplicados, cada um sobre os itens do seu vendedor.
 - Só entram cupons de vendedores que têm produto no carrinho. Aplicar um cupom novo substitui o que o mesmo vendedor já tinha no pedido.
 
-**Desconto gravado na finalização.** Ao finalizar, o desconto total é gravado em `Pedido.desconto_aplicado`. Pedido finalizado mostra sempre esse valor, então editar ou desativar um cupom depois não muda o total de pedidos antigos. O total é `subtotal - desconto`, nunca abaixo de zero.
+**Desconto gravado na finalização.** Ao finalizar, o desconto total é gravado em `Pedido.desconto_aplicado` e, ao mesmo tempo, uma linha de `DescontoCupom` por cupom que teve efeito (valor maior que zero), com o vendedor dono, o código e o percentual copiados. Os dois vêm do mesmo cálculo (`detalhar_descontos()`), então a soma das linhas é igual ao `desconto_aplicado`. É dessas linhas que o dashboard tira "descontos concedidos" de cada vendedor. Pedido finalizado mostra sempre esse valor, então editar ou desativar um cupom depois não muda o total de pedidos antigos. O total é `subtotal - desconto`, nunca abaixo de zero. Pedidos finalizados antes de existir `DescontoCupom` não têm essas linhas (com o `docker compose down -v` isso não ocorre).
 
 ## Perfis
 
@@ -226,7 +242,7 @@ O `Vendedor` é o perfil de uma conta (`user.perfil_vendedor`); quem se cadastra
 |---|---|
 | **Visitante** (sem login) | Vitrine, carrinho, login e cadastro. Ao tentar finalizar a compra, é levado ao login. |
 | **Cliente** | Tudo do visitante, mais: checkout (`/finalizar/`), confirmação do pedido, **Meus pedidos** (`/pedidos/`) e detalhe de cada pedido. Na API, vê os próprios pedidos em `/api/pedidos/`. |
-| **Vendedor** | Tudo do cliente (ele também pode comprar), mais a **área do vendedor**: Meus produtos, Meus cupons e Pedidos recebidos (`/vendedor/...`). Na API, usa `/api/produtos/`, `/api/cupons/` e `/api/pedidos/`. |
+| **Vendedor** | Tudo do cliente (ele também pode comprar), mais a **área do vendedor**: Meus produtos, Meus cupons e Pedidos recebidos (`/vendedor/...`). Também o **dashboard** (`/vendedor/dashboard/`) e a exportação em CSV. Na API, usa `/api/produtos/`, `/api/cupons/`, `/api/pedidos/` e `/api/dashboard/`. |
 | **Administrador** (superusuário) | Painel `/admin/` do Django. |
 
 Quem não é vendedor e abre uma rota `/vendedor/...` é redirecionado para a vitrine com uma mensagem de erro. Quem não está logado é redirecionado para o login.
@@ -252,12 +268,14 @@ Onde cada regra aparece:
 | `/vendedor/cupons/` e `/vendedor/cupons/novo/` | Lista e cria só cupons do vendedor logado; código único por vendedor. |
 | `/vendedor/cupons/<pk>/editar/` | `get_object_or_404(Cupom, pk=pk, vendedor=vendedor)`: cupom alheio dá 404. |
 | `/vendedor/pedidos/` (Pedidos recebidos) | Só pedidos finalizados que têm item de produto do vendedor; só os itens dele são carregados (`Prefetch` com `to_attr`), então itens de outros vendedores não chegam ao template. |
+| `/vendedor/dashboard/` e `/vendedor/dashboard/exportar/` | Toda métrica parte de `itens_vendidos(vendedor_atual, ...)`, com `produto__vendedor=vendedor`, só pedidos finalizados e só os itens do vendedor; descontos vêm de `DescontoCupom.filter(vendedor=...)`; estoque vem de `Produto.filter(vendedor=...)`. O vendedor nunca vem da URL. |
 | `/vendedor/pedidos/<pk>/` | Pedido sem nenhum produto do vendedor dá 404. Mostra só os itens e o subtotal dele, mais o contato do cliente. |
 | `/pedidos/` e `/pedidos/<pk>/` (Meus pedidos) | Parte de `cliente=request.user` e só pedidos finalizados; pedido de outro cliente ou ainda aberto dá 404. |
 | `/pedido/<id>/confirmado/` | `get_object_or_404` com `cliente=request.user` e status finalizado. |
 | `/carrinho/` (aplicar cupom) | Só vale cupom de vendedor que tem produto no carrinho; cada cupom desconta só os itens do seu vendedor. |
 | `/api/produtos/` e `/api/produtos/<id>/` | `get_queryset` filtra por `vendedor_atual`; permissão `IsVendedor` (cliente recebe 403); `perform_create` define o dono; 404 para registro alheio. |
 | `/api/cupons/` e `/api/cupons/<id>/` | Mesma regra de produtos; o serializer valida o código único por vendedor. |
+| `/api/dashboard/` | Mesmas funções do dashboard da tela (`loja/dashboard.py`); permissão `IsVendedor`; só `GET`. |
 | `/api/pedidos/` e `/api/pedidos/<id>/` | Cliente: só pedidos finalizados dele. Vendedor: só pedidos finalizados com produto dele, **com apenas os itens dele**. Pedido alheio: 404. |
 
 ## API REST
@@ -269,6 +287,7 @@ A API fica sob `/api/`, devolve JSON e usa a **mesma sessão do login do site** 
 | Produtos | `/api/produtos/` e `/api/produtos/<id>/` | Vendedor | GET, POST / GET, PUT, PATCH, DELETE |
 | Cupons | `/api/cupons/` e `/api/cupons/<id>/` | Vendedor | GET, POST / GET, PUT, PATCH, DELETE |
 | Pedidos | `/api/pedidos/` e `/api/pedidos/<id>/` | Cliente e vendedor | somente GET |
+| Dashboard | `/api/dashboard/` | Vendedor | somente GET |
 
 Nos pedidos, o **cliente** vê seus pedidos finalizados, com todos os itens e os totais; o **vendedor** vê os pedidos finalizados que contêm produtos dele, com apenas os itens dele e o subtotal deles. Uma conta de vendedor que também compra vê em `/api/pedidos/` a visão de vendedor; as compras dela aparecem na tela *Meus pedidos* do site.
 
@@ -279,7 +298,7 @@ Nos pedidos, o **cliente** vê seus pedidos finalizados, com todos os itens e os
 | 200 | Leitura ou atualização com sucesso |
 | 201 | Criação com sucesso |
 | 204 | Exclusão com sucesso (sem corpo) |
-| 400 | Dados inválidos (o corpo traz o erro de cada campo) ou produto que não pode ser excluído |
+| 400 | Dados inválidos (o corpo traz o erro de cada campo), período inválido no dashboard, ou produto que não pode ser excluído |
 | 403 | Sem login, sem token CSRF, ou logado sem perfil de vendedor em produtos e cupons |
 | 404 | Registro inexistente **ou de outra pessoa** |
 | 405 | Método não permitido (ex.: POST em `/api/pedidos/`) |
@@ -425,6 +444,33 @@ Resposta para um **vendedor** (só os itens dele e o subtotal deles; sem descont
  "subtotal": "51.80"}
 ```
 
+#### Dashboard (conta de vendedor, somente leitura)
+
+```bash
+# Mês atual (padrão) -> 200
+curl -s -b $JAR $BASE/api/dashboard/
+
+# Período escolhido (datas AAAA-MM-DD, o dia final é incluído) -> 200
+curl -s -b $JAR "$BASE/api/dashboard/?de=2026-11-01&ate=2026-11-30"
+
+# Data inválida -> 400
+curl -s -b $JAR "$BASE/api/dashboard/?de=abc"
+# {"de": ["Informe uma data válida."]}
+```
+
+Exemplo de resposta (valores de ilustração, não são de um teste):
+```json
+{"periodo": {"de": "2026-11-01", "ate": "2026-11-30", "granularidade": "dia"},
+ "totais": {"faturamento_bruto": "100.00", "descontos_concedidos": "5.00",
+            "faturamento_liquido": "95.00", "pedidos": 2, "unidades": 2, "ticket_medio": "50.00"},
+ "top_produtos": [{"produto_id": 1, "produto": "Caneca", "unidades": 2, "receita": "100.00"}],
+ "serie": [{"periodo": "2026-11-01", "rotulo": "01/11", "receita": "0.00", "pedidos": 0}],
+ "estoque": {"limite_baixo": 5, "esgotados": 0, "baixos": 1, "ok": 3, "total_ativos": 4,
+             "produtos_criticos": [{"id": 3, "nome": "Caneca", "estoque": 2}]}}
+```
+
+A `serie` traz um item por dia (ou por mês, em períodos com mais de 62 dias), com zero nos dias sem venda. Um cliente, ou quem não está logado, recebe 403.
+
 #### Isolamento e permissões
 
 ```bash
@@ -454,6 +500,7 @@ Roteiro para provar que um vendedor ou cliente não alcança os dados de outro. 
 - `vendB` cadastra o produto **Camiseta** (R$ 100,00, estoque 10), o cupom **PROMO10** (20%, validade futura) e um cupom **SOB20** (20%, validade futura).
 - `cliA` compra 1 Caneca + 1 Camiseta aplicando **PROMO10** e finaliza. Esse é o pedido **P1** (misto).
 - `cliB` compra 1 Caneca e finaliza. Esse é o pedido **P2** (só produto de `vendA`).
+- Os valores esperados de T31 a T43 consideram **só P1 e P2**, finalizados no mês atual. Se você finalizou outros pedidos nos cenários anteriores (por exemplo em T18), inclua-os na conta.
 - Anote os ids (pelas URLs ou pelo `/admin/`). Para as rotas de API, use a sessão de cada usuário (navegador ou `curl`, como na seção da API).
 
 | Cenário | Resultado esperado | Resultado obtido |
@@ -488,7 +535,88 @@ Roteiro para provar que um vendedor ou cliente não alcança os dados de outro. 
 | **T28.** `vendB` faz `GET /api/pedidos/<id de P2>/`. | 404. | |
 | **T29.** `cliB` faz `GET /api/pedidos/<id de P1>/`. | 404. | |
 | **T30.** `cliA` faz `GET /api/pedidos/`. | Lista só os pedidos de `cliA` (P1), com os dois itens, subtotal "150.00", desconto "25.00" e total "125.00". | |
+| **T31.** `vendA` abre o *Dashboard* (`/vendedor/dashboard/`) no mês de P1 e P2. | Faturamento bruto R$ 100,00 (50 + 50), descontos R$ 5,00, líquido R$ 95,00, 2 pedidos, 2 unidades, ticket médio R$ 50,00; o ranking tem só a Caneca (2 unid.), sem nenhuma menção à Camiseta. | |
+| **T32.** `vendB` abre o *Dashboard*. | Faturamento bruto R$ 100,00, descontos R$ 20,00, líquido R$ 80,00, 1 pedido, 1 unidade, ticket médio R$ 100,00; o ranking tem só a Camiseta. Nenhum número de `vendA` aparece. | |
+| **T33.** `vendB` filtra um período sem vendas: `?de=2020-01-01&ate=2020-01-31`. | Página normal (200) com cartões zerados e o aviso "Você ainda não tem vendas finalizadas neste período."; sem gráfico quebrado. | |
+| **T34.** `vendA` abre `?de=abc&ate=2026-13-45`. | Página normal (200) com o aviso "Período inválido" e os números do mês atual; sem erro 500. | |
+| **T35.** `vendA` abre `?de=2026-12-31&ate=2026-01-01` (data inicial depois da final). | O mesmo aviso de período inválido; sem erro 500. | |
+| **T36.** `vendA` filtra com `ate` igual à data de hoje, no dia em que P1 foi finalizado. | P1 aparece nos totais: o dia final é incluído. | |
+| **T37.** `cliA` (cliente) abre `/vendedor/dashboard/` e `/vendedor/dashboard/exportar/`; visitante sem login abre as mesmas URLs. | Cliente: redireciona para a vitrine com "Esta área é exclusiva para contas de Vendedor."; visitante: redireciona para `/entrar/`. | |
+| **T38.** `vendA` clica em *Exportar CSV*. | Baixa um CSV (separador `;`) só com os itens de `vendA`: uma linha da Caneca em P1 e outra em P2; nenhuma linha da Camiseta. | |
+| **T39.** Conferência à mão: some a coluna *Subtotal* do CSV de `vendA` e compare com o *Faturamento bruto* do dashboard. | Os dois valores são iguais (R$ 100,00). | |
+| **T40.** Depois dos pedidos, `vendA` edita o `PROMO10` (muda o percentual) e confere o *Dashboard*. | *Descontos concedidos* continua R$ 5,00: o desconto foi gravado na finalização. | |
+| **T41.** `vendA` zera o estoque da Caneca e abre o *Dashboard*. | Na seção *Estoque* a Caneca aparece como "Esgotado"; produtos de `vendB` nunca aparecem na lista de `vendA`. | |
+| **T42.** `vendA` faz `GET /api/dashboard/`. | 200 com os mesmos números do dashboard da tela (T31): `faturamento_bruto` "100.00", `descontos_concedidos` "5.00", `pedidos` 2, e `top_produtos` só com a Caneca. | |
+| **T43.** `vendB` faz `GET /api/dashboard/`. | 200 com `faturamento_bruto` "100.00" e `top_produtos` só com a Camiseta. | |
+| **T44.** Sem login, `cliA` logado e `vendA` com `?de=abc` fazem `GET /api/dashboard/`; `vendA` faz `POST /api/dashboard/` com o token CSRF. | Sem login: 403. Cliente: 403 ("Esta API é exclusiva para contas de Vendedor."). Data inválida: 400 com o erro de `de`. POST: 405. | |
 
 ## Dashboard
 
-*A documentar na etapa 5.*
+Tela do vendedor em `/vendedor/dashboard/` (menu *Área do vendedor > Dashboard*). Ela responde às perguntas que o dono da loja faz toda semana:
+
+| Pergunta | Tipo | Métrica na tela |
+|---|---|---|
+| Quanto vendi? | Total (KPI) | Faturamento bruto, descontos concedidos, faturamento líquido, pedidos e unidades |
+| Quanto cada pedido me rende? | Total (KPI) | Ticket médio (faturamento bruto dividido pelos pedidos, só da parte do vendedor) |
+| Quais produtos mais saem? | Ranking | Top 5 produtos por unidades vendidas (a receita é o desempate) |
+| Como as vendas evoluem? | Série no tempo | Gráfico de linha do faturamento por dia (períodos de até 62 dias) ou por mês |
+| O que vai acabar? | Distribuição | Rosca com produtos esgotados, com estoque baixo (até 5 unidades) e ok, mais a lista dos que precisam de reposição |
+
+### Regras
+
+- **Isolamento**: toda métrica parte do vendedor logado (`vendedor_atual`) e conta só os itens dos produtos dele; o vendedor A nunca vê números do vendedor B. Veja a tabela de [Multi-organização](#multi-organização-cada-vendedor-é-uma-organização).
+- **Só pedidos finalizados** (carrinho aberto não é venda), com cliente (mesma regra de *Pedidos recebidos*, para os números baterem entre as telas).
+- **Receita** é sempre `ItemPedido.preco_unitario × quantidade` (o preço gravado na compra), nunca o preço atual do produto. Os pedidos podem ter itens de outros vendedores, que não entram na conta.
+- **Descontos concedidos** vêm de `DescontoCupom` (gravado na finalização). Editar ou desativar um cupom depois não muda o histórico.
+- **Estoque** é uma foto de agora, dos produtos ativos; não depende do período.
+
+### Filtro por período
+
+`?de=AAAA-MM-DD&ate=AAAA-MM-DD`, validado por um formulário (`PeriodoForm`), então data inválida nunca causa erro 500.
+
+| Situação | Período aplicado |
+|---|---|
+| Sem parâmetros | Do dia 1º do mês atual até hoje |
+| Só `de` | De `de` até hoje |
+| Só `ate` | Do dia 1º do mês de `ate` até `ate` |
+| Data inválida, ano fora de 2000–2100, ou `de` depois do fim | Aviso na tela e mês atual (na API, resposta 400) |
+
+O dia final é **incluído**. O intervalo usado na consulta é `[de 00:00, ate + 1 dia 00:00)` no fuso `America/Sao_Paulo`.
+
+### Exportação em CSV
+
+O botão *Exportar CSV* baixa `/vendedor/dashboard/exportar/?de=...&ate=...`, com os itens vendidos do período (colunas Pedido, Data, Cliente, Produto, Quantidade, Preço unitário e Subtotal), usando a mesma base filtrada do dashboard. O arquivo usa `;` como separador, UTF-8 com BOM e vírgula decimal, para abrir direto no Excel em português. Textos que começam com `=`, `+`, `-` ou `@` recebem um apóstrofo na frente, para o Excel não interpretá-los como fórmula.
+
+### API
+
+`GET /api/dashboard/` devolve as mesmas métricas em JSON (veja a seção [API REST](#api-rest)), com as mesmas regras de isolamento.
+
+### Desempenho
+
+- Os dados vêm de 6 consultas (`aggregate`, `values` + `annotate` e contagens com `Count(filter=...)`), sem acessar relação dentro de loop, portanto sem N+1. O CSV usa `select_related`.
+- Há um índice em `Pedido(status, finalizado_em)`, usado pelo filtro de período.
+- Não há cache: num sistema multi-organização, um cache sem o vendedor na chave serviria o dashboard de um vendedor para outro.
+
+Para conferir o número de consultas (preencha o resultado depois de rodar):
+
+```bash
+docker compose exec web python manage.py shell
+```
+```python
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+from loja.dashboard import montar_dashboard, periodo_padrao
+from loja.models import Vendedor
+
+vendedor = Vendedor.objects.first()
+de, ate = periodo_padrao()
+with CaptureQueriesContext(connection) as ctx:
+    montar_dashboard(vendedor, de, ate)
+print(len(ctx))   # esperado: 6. Número de consultas obtido: ____
+```
+
+### Observações
+
+- Os gráficos usam o Chart.js carregado do CDN jsdelivr (versão fixa 4.4.1), como o Bootstrap; sem internet, a tela mostra um aviso no lugar dos gráficos e o resto funciona.
+- Se o vendedor comprar produtos dele mesmo, o pedido conta como venda, igual em *Pedidos recebidos*.
+- O limite de "estoque baixo" (5) é a constante `ESTOQUE_BAIXO_LIMITE` em `loja/dashboard.py`.

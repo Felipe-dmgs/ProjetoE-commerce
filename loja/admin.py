@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Cupom, ItemPedido, Pedido, Produto, Vendedor
+from .models import Cupom, DescontoCupom, ItemPedido, Pedido, Produto, Vendedor
 
 
 @admin.register(Vendedor)
@@ -46,3 +46,11 @@ class PedidoAdmin(admin.ModelAdmin):
         """Coluna calculada mostrando o total do pedido (usa nosso método do model)."""
         return f'R$ {obj.calcular_total()}'
     total_admin.short_description = 'Total'
+
+
+@admin.register(DescontoCupom)
+class DescontoCupomAdmin(admin.ModelAdmin):
+    """Desconto gravado na finalização de cada pedido (só leitura: é histórico)."""
+    list_display = ('pedido', 'vendedor', 'codigo', 'percentual', 'valor')
+    list_filter = ('vendedor',)
+    readonly_fields = ('pedido', 'vendedor', 'cupom', 'codigo', 'percentual', 'valor')

@@ -11,25 +11,29 @@ Este arquivo reúne as views HTML do app, em três blocos:
                               ESTOQUE) e `pedido_confirmado`
     2. Autenticação e área do cliente -> `EntrarView`, `registro`,
                               `meus_pedidos` e `detalhe_pedido`
-    3. Área do vendedor    -> produtos, cupons e pedidos recebidos
+    3. Área do vendedor    -> produtos, cupons, pedidos recebidos e dashboard
 
 O healthcheck do Docker (/healthz/) fica em loja/health.py, e a API REST em
 loja/api_views.py.
 """
 
+import csv
 from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 from django.db.models import Prefetch, Q
 
 from .cart import Carrinho, unir_carrinho_anonimo
+from .dashboard import itens_vendidos, montar_dashboard, periodo_da_requisicao
 from .decorators import vendedor_atual, vendedor_required
 from .forms import (
     AdicionarAoCarrinhoForm,
@@ -561,3 +565,100 @@ def detalhe_pedido_recebido(request, pk):
         'subtotal': subtotal,
     }
     return render(request, 'loja/pedido_recebido_detalhe.html', contexto)
+
+
+@vendedor_required
+def dashboard(request):
+    """
+    Dashboard do vendedor logado: totais, ranking, série e estoque. As
+    métricas ficam em loja/dashboard.py e todas partem do vendedor logado e do
+    período validado (?de=&ate=, padrão: mês atual).
+    """
+    vendedor = vendedor_atual(request)
+    form, de, ate = periodo_da_requisicao(request.GET)
+    dados = montar_dashboard(vendedor, de, ate)
+
+    # Dados dos gráficos: dinheiro vira float só aqui (o Chart.js precisa de
+    # número); nos cartões e tabelas o valor continua Decimal.
+    grafico_serie = [
+        {'rotulo': p['rotulo'], 'receita': float(p['receita']), 'pedidos': p['pedidos']}
+        for p in dados['serie']
+    ]
+    estoque = dados['estoque']
+    grafico_estoque = {
+        'esgotados': estoque['esgotados'],
+        'baixos': estoque['baixos'],
+        'ok': estoque['ok'],
+    }
+
+    contexto = {
+        'form': form,  # carrega os erros quando a data da URL é inválida
+        'de': de,
+        'ate': ate,
+        'periodo': dados['periodo'],
+        'totais': dados['totais'],
+        'top_produtos': dados['top_produtos'],
+        'estoque': estoque,
+        'grafico_serie': grafico_serie,
+        'grafico_estoque': grafico_estoque,
+    }
+    return render(request, 'loja/dashboard.html', contexto)
+
+
+def _celula_csv_segura(valor):
+    """
+    Texto vindo do usuário (nome do cliente, do produto) pode começar com
+    = + - @ e o Excel o interpretaria como fórmula. O apóstrofo na frente
+    impede isso.
+    """
+    texto = str(valor)
+    if texto and texto[0] in ('=', '+', '-', '@', '\t', '\r'):
+        return "'" + texto
+    return texto
+
+
+def _decimal_br(valor):
+    """Decimal com vírgula (25,90), que é como o Excel em português lê número."""
+    return str(valor).replace('.', ',')
+
+
+@vendedor_required
+def exportar_dashboard_csv(request):
+    """
+    CSV com os itens vendidos no período, usando a MESMA base filtrada do
+    dashboard (dono + FINALIZADOS + período): só itens do vendedor logado.
+    """
+    vendedor = vendedor_atual(request)
+    form, de, ate = periodo_da_requisicao(request.GET)
+    if not form.is_valid():
+        messages.error(request, 'Período inválido: corrija as datas antes de exportar.')
+        return redirect('loja:dashboard')
+
+    itens = (
+        itens_vendidos(vendedor, de, ate)
+        .select_related('produto', 'pedido')  # evita uma consulta por linha (N+1)
+        .order_by('pedido__finalizado_em', 'pedido_id', 'produto__nome')
+    )
+
+    resposta = HttpResponse(content_type='text/csv; charset=utf-8')
+    resposta['Content-Disposition'] = (
+        f'attachment; filename="vendas_{de:%Y%m%d}_{ate:%Y%m%d}.csv"'
+    )
+    resposta.write('\ufeff')  # BOM: o Excel reconhece os acentos em UTF-8
+
+    # ";" como separador: é o que o Excel em português espera.
+    escritor = csv.writer(resposta, delimiter=';')
+    escritor.writerow([
+        'Pedido', 'Data', 'Cliente', 'Produto', 'Quantidade', 'Preço unitário', 'Subtotal',
+    ])
+    for item in itens:
+        escritor.writerow([
+            item.pedido_id,
+            timezone.localtime(item.pedido.finalizado_em).strftime('%d/%m/%Y %H:%M'),
+            _celula_csv_segura(item.pedido.cliente_nome),
+            _celula_csv_segura(item.produto.nome),
+            item.quantidade,
+            _decimal_br(item.preco_unitario),
+            _decimal_br(item.subtotal()),
+        ])
+    return resposta

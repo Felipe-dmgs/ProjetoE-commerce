@@ -1,0 +1,179 @@
+{% extends 'loja/base.html' %}
+{% load static %}
+
+{% block titulo %}Dashboard{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+    <div>
+        <h1 class="mb-0">Dashboard</h1>
+        <p class="text-muted mb-0">
+            Vendas finalizadas de {{ de|date:"d/m/Y" }} a {{ ate|date:"d/m/Y" }}
+            (agrupadas por {% if periodo.granularidade == 'dia' %}dia{% else %}mês{% endif %}).
+        </p>
+    </div>
+    <a href="{% url 'loja:dashboard_exportar' %}?de={{ de|date:'Y-m-d' }}&ate={{ ate|date:'Y-m-d' }}"
+       class="btn btn-outline-secondary">Exportar CSV</a>
+</div>
+
+{# Filtro de período: sempre mostra o intervalo REALMENTE aplicado (inclusive o padrão) #}
+<form method="get" class="card card-body mb-3">
+    <div class="row g-2 align-items-end">
+        <div class="col-6 col-md-3">
+            <label for="de" class="form-label mb-1">De</label>
+            <input type="date" id="de" name="de" class="form-control" value="{{ de|date:'Y-m-d' }}">
+        </div>
+        <div class="col-6 col-md-3">
+            <label for="ate" class="form-label mb-1">Até</label>
+            <input type="date" id="ate" name="ate" class="form-control" value="{{ ate|date:'Y-m-d' }}">
+        </div>
+        <div class="col-12 col-md-auto d-flex gap-2">
+            <button type="submit" class="btn btn-primary">Filtrar</button>
+            <a href="{% url 'loja:dashboard' %}" class="btn btn-link">Mês atual</a>
+        </div>
+    </div>
+</form>
+
+{% if form.errors %}
+<div class="alert alert-warning">
+    <strong>Período inválido.</strong> Mostrando o mês atual.
+    <ul class="mb-0">
+        {% for campo, erros in form.errors.items %}
+            {% for erro in erros %}<li>{{ erro }}</li>{% endfor %}
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+{# Cartões de totais #}
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg-2">
+        <div class="card h-100"><div class="card-body">
+            <small class="text-muted">Faturamento bruto</small>
+            <div class="fs-5 fw-bold">R$ {{ totais.faturamento_bruto|floatformat:2 }}</div>
+        </div></div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="card h-100"><div class="card-body">
+            <small class="text-muted">Descontos concedidos</small>
+            <div class="fs-5 fw-bold">R$ {{ totais.descontos_concedidos|floatformat:2 }}</div>
+        </div></div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="card h-100"><div class="card-body">
+            <small class="text-muted">Faturamento líquido</small>
+            <div class="fs-5 fw-bold">R$ {{ totais.faturamento_liquido|floatformat:2 }}</div>
+        </div></div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="card h-100"><div class="card-body">
+            <small class="text-muted">Pedidos</small>
+            <div class="fs-5 fw-bold">{{ totais.pedidos }}</div>
+        </div></div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="card h-100"><div class="card-body">
+            <small class="text-muted">Unidades vendidas</small>
+            <div class="fs-5 fw-bold">{{ totais.unidades }}</div>
+        </div></div>
+    </div>
+    <div class="col-6 col-lg-2">
+        <div class="card h-100"><div class="card-body">
+            <small class="text-muted">Ticket médio</small>
+            <div class="fs-5 fw-bold">R$ {{ totais.ticket_medio|floatformat:2 }}</div>
+        </div></div>
+    </div>
+</div>
+
+{% if totais.pedidos == 0 %}
+<div class="alert alert-info">
+    Você ainda não tem vendas finalizadas neste período. Tente ampliar as datas
+    do filtro; quando houver vendas, o gráfico e o ranking aparecem aqui.
+</div>
+{% else %}
+<div class="row g-3 mb-4">
+    <div class="col-lg-8">
+        <div class="card h-100"><div class="card-body">
+            <h2 class="h5">Faturamento por {% if periodo.granularidade == 'dia' %}dia{% else %}mês{% endif %}</h2>
+            <div style="position: relative; height: 300px;">
+                <canvas id="grafico-serie"></canvas>
+            </div>
+        </div></div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100"><div class="card-body">
+            <h2 class="h5">Produtos mais vendidos</h2>
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr><th>Produto</th><th class="text-end">Unid.</th><th class="text-end">Receita</th></tr>
+                </thead>
+                <tbody>
+                    {% for item in top_produtos %}
+                    <tr>
+                        <td>{{ item.produto }}</td>
+                        <td class="text-end">{{ item.unidades }}</td>
+                        <td class="text-end">R$ {{ item.receita|floatformat:2 }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="3" class="text-muted">Sem dados no período.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div></div>
+    </div>
+</div>
+{% endif %}
+
+{# Estoque: foto de agora, não depende do período #}
+<h2 class="h4 mb-1">Estoque</h2>
+<p class="text-muted">Produtos ativos agora (não depende do período). Estoque baixo: até {{ estoque.limite_baixo }} unidades.</p>
+{% if estoque.total_ativos == 0 %}
+    <p class="alert alert-info">Você ainda não tem produtos ativos.</p>
+{% else %}
+<div class="row g-3 mb-5">
+    <div class="col-lg-4">
+        <div class="card h-100"><div class="card-body">
+            <div style="position: relative; height: 220px;">
+                <canvas id="grafico-estoque"></canvas>
+            </div>
+        </div></div>
+    </div>
+    <div class="col-lg-8">
+        <div class="card h-100"><div class="card-body">
+            <table class="table table-sm align-middle mb-0">
+                <thead><tr><th>Produto</th><th class="text-end">Estoque</th><th></th></tr></thead>
+                <tbody>
+                    {% for produto in estoque.produtos_criticos %}
+                    <tr>
+                        <td>{{ produto.nome }}</td>
+                        <td class="text-end">
+                            {% if produto.estoque == 0 %}
+                                <span class="badge text-bg-danger">Esgotado</span>
+                            {% else %}
+                                <span class="badge text-bg-warning">{{ produto.estoque }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <a href="{% url 'loja:editar_produto' produto.id %}" class="btn btn-sm btn-outline-secondary">Ajustar</a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="3" class="text-muted">Nenhum produto com estoque baixo.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div></div>
+    </div>
+</div>
+{% endif %}
+
+{# Dados para o JavaScript: json_script escreve JSON seguro na página #}
+{{ grafico_serie|json_script:"dados-serie" }}
+{{ grafico_estoque|json_script:"dados-estoque" }}
+{% endblock %}
+
+{% block scripts %}
+{# Chart.js via CDN com versão fixa (mesma estratégia do Bootstrap no base.html) #}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<script src="{% static 'loja/js/dashboard.js' %}"></script>
+{% endblock %}

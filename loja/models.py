@@ -30,7 +30,7 @@ class Vendedor(models.Model):
         return self.nome
 
 
-class Produto(models.Model):    
+class Produto(models.Model):
 
     vendedor = models.ForeignKey(
         Vendedor,
@@ -140,6 +140,11 @@ class Pedido(models.Model):
 
     class Meta:
         ordering = ['-criado_em']
+        # O dashboard filtra sempre por status FINALIZADO + intervalo de
+        # finalizado_em; este índice composto acelera exatamente essa consulta.
+        indexes = [
+            models.Index(fields=['status', 'finalizado_em'], name='pedido_status_finalizado_idx'),
+        ]
 
     def __str__(self):
         return f'Pedido #{self.pk} ({self.get_status_display()})'
@@ -207,10 +212,31 @@ class Pedido(models.Model):
                 produto.estoque -= item.quantidade
                 produto.save(update_fields=['estoque'])
 
-            self.desconto_aplicado = self.calcular_desconto()
+            # detalhar_descontos() é chamado UMA vez: o mesmo resultado alimenta o
+            # total gravado no pedido e as linhas por vendedor (DescontoCupom).
+            # Assim a soma das linhas é sempre igual ao desconto_aplicado, sem
+            # diferença de centavos.
+            detalhes = self.detalhar_descontos()
+            self.desconto_aplicado = sum((valor for _, valor in detalhes), Decimal('0.00'))
             self.status = Pedido.Status.FINALIZADO
             self.finalizado_em = timezone.now()
             self.save(update_fields=['status', 'finalizado_em', 'desconto_aplicado'])
+
+            # Grava quanto CADA cupom descontou (cupom sem efeito, valor 0, não
+            # vira linha). Cupom e percentual são copiados porque o vendedor pode
+            # editar ou apagar o cupom depois, e o histórico não pode mudar.
+            DescontoCupom.objects.bulk_create([
+                DescontoCupom(
+                    pedido=self,
+                    vendedor_id=cupom.vendedor_id,
+                    cupom=cupom,
+                    codigo=cupom.codigo,
+                    percentual=cupom.desconto_percentual,
+                    valor=valor,
+                )
+                for cupom, valor in detalhes
+                if valor > 0
+            ])
 
 
 class ItemPedido(models.Model):
@@ -227,3 +253,32 @@ class ItemPedido(models.Model):
 
     def subtotal(self):
         return self.preco_unitario * self.quantidade
+
+
+class DescontoCupom(models.Model):
+    """
+    Desconto que UM cupom concedeu em UM pedido, gravado na finalização.
+
+    Por que existe: Pedido.desconto_aplicado guarda só o desconto TOTAL, somando
+    os cupons de vários vendedores. O dashboard precisa saber quanto o vendedor
+    logado concedeu, e isso não dá para recalcular depois (o cupom pode ter sido
+    editado, desativado ou ter expirado). Uma linha por cupom aplicado, já com o
+    vendedor dono, deixa a consulta do dashboard simples e isolada por dono.
+    """
+    pedido = models.ForeignKey(Pedido, on_delete=models.CASCADE, related_name='descontos_cupom')
+    vendedor = models.ForeignKey(Vendedor, on_delete=models.CASCADE, related_name='descontos_concedidos')
+    # SET_NULL: se o cupom for apagado, o histórico do desconto continua.
+    cupom = models.ForeignKey(
+        Cupom, on_delete=models.SET_NULL, null=True, blank=True, related_name='descontos'
+    )
+    # Cópias (snapshot) do cupom no momento da compra.
+    codigo = models.CharField(max_length=30)
+    percentual = models.DecimalField(max_digits=5, decimal_places=2)
+    valor = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        verbose_name = 'Desconto de cupom'
+        verbose_name_plural = 'Descontos de cupom'
+
+    def __str__(self):
+        return f'{self.codigo}: -R$ {self.valor} (pedido #{self.pedido_id})'

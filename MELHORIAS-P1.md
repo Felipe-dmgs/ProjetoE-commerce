@@ -84,6 +84,7 @@ roteiro de isolamento.
 | 3 | Estoque acumulado e baixa atômica | Concluída (etapa 2) |
 | 4 | Carrinho preservado no login | Concluída (etapa 2) |
 | 5 | Limpeza de código e README | Concluída (etapa 4) |
+| P2 | Dashboard do vendedor (pilar 3 da P2) | Concluída (etapa 5) |
 
 ## API REST
 
@@ -94,6 +95,7 @@ A API fica sob `/api/` e usa a **mesma sessão do login do site** (autenticaçã
 | Produtos | `/api/produtos/` e `/api/produtos/<id>/` | Vendedor | GET, POST / GET, PUT, PATCH, DELETE |
 | Cupons | `/api/cupons/` e `/api/cupons/<id>/` | Vendedor | GET, POST / GET, PUT, PATCH, DELETE |
 | Pedidos | `/api/pedidos/` e `/api/pedidos/<id>/` | Cliente e vendedor | somente GET |
+| Dashboard | `/api/dashboard/` (filtros `?de=` e `?ate=`) | Vendedor | somente GET |
 
 Nos pedidos, o **cliente** vê seus pedidos finalizados; o **vendedor** vê os pedidos finalizados que contêm produtos dele, **com apenas os itens dele**.
 

@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 from .models import Cupom, Produto, Vendedor
 from .validators import (
@@ -151,3 +152,44 @@ class CupomCadastroForm(forms.ModelForm):
         validade = self.cleaned_data.get('validade')
         validar_validade_cupom(validade, self.instance)
         return validade
+
+
+class PeriodoForm(forms.Form):
+    """
+    Filtro de período do dashboard (?de=AAAA-MM-DD&ate=AAAA-MM-DD).
+
+    Existe como Form para que uma data malformada na URL (ex.: ?de=abc) vire um
+    erro de validação, e não um erro 500. Os dois campos são opcionais: o
+    padrão (mês atual) é resolvido em dashboard.resolver_periodo().
+    """
+    de = forms.DateField(
+        required=False, label='De', input_formats=['%Y-%m-%d'],
+        widget=forms.DateInput(attrs={'type': 'date'}),
+    )
+    ate = forms.DateField(
+        required=False, label='Até', input_formats=['%Y-%m-%d'],
+        widget=forms.DateInput(attrs={'type': 'date'}),
+    )
+
+    def clean(self):
+        dados = super().clean()
+        de, ate = dados.get('de'), dados.get('ate')
+
+        # Limita os anos para o cálculo "ate + 1 dia" e a série mensal nunca
+        # estourarem com datas absurdas como 9999-12-31.
+        invalido = False
+        for campo, valor in (('de', de), ('ate', ate)):
+            if valor and not (2000 <= valor.year <= 2100):
+                self.add_error(campo, 'Informe uma data entre os anos 2000 e 2100.')
+                invalido = True
+        if invalido:
+            return dados
+
+        # Sem data final, o período vai até hoje.
+        fim = ate or timezone.localdate()
+        if de and de > fim:
+            raise forms.ValidationError(
+                'A data inicial não pode ser depois da data final (ou de hoje, '
+                'quando a data final não foi informada).'
+            )
+        return dados
