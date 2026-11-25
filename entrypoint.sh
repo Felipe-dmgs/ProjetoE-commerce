@@ -42,6 +42,10 @@ python manage.py migrate --noinput
 #Coleta arquivos estaticos
 python manage.py collectstatic --noinput
 
+# Popula o banco com dados iniciais (vendedores, clientes, produtos, cupons e pedidos)
+# e imprime no terminal as credenciais de login para facilitar a visualizacao
+python manage.py popular_dados
+
 
 # --bind 0.0.0.0:8000 -> aceita conexoes de fora do container
 # --workers 3         -> numero de processos que atendem requisicoes em paralelo
