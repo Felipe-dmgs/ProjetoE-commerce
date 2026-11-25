@@ -4,15 +4,17 @@ views.py
 Views são funções (ou classes) que recebem uma requisição HTTP e devolvem
 uma resposta HTTP (geralmente renderizando um template HTML).
 
-Fluxo desta primeira entrega:
-    1. `lista_produtos`      -> vitrine de produtos, com botão "adicionar ao carrinho"
-    2. `adicionar_ao_carrinho` -> processa o formulário e adiciona o item
-    3. `ver_carrinho`        -> mostra os itens, permite alterar quantidade,
-                                aplicar cupom e mostra o TOTAL calculado
-    4. `remover_do_carrinho` -> remove um item do carrinho
-    5. `finalizar_pedido`    -> tela com dados do cliente + confirma o pedido
-                                (aqui acontece a BAIXA DE ESTOQUE)
-    6. `pedido_confirmado`   -> página de sucesso, mostrando o resumo do pedido
+Este arquivo reúne as views HTML do app, em três blocos:
+    1. Vitrine e carrinho  -> `lista_produtos`, `adicionar_ao_carrinho`,
+                              `ver_carrinho`, `remover_do_carrinho`,
+                              `finalizar_pedido` (aqui acontece a BAIXA DE
+                              ESTOQUE) e `pedido_confirmado`
+    2. Autenticação e área do cliente -> `EntrarView`, `registro`,
+                              `meus_pedidos` e `detalhe_pedido`
+    3. Área do vendedor    -> produtos, cupons e pedidos recebidos
+
+O healthcheck do Docker (/healthz/) fica em loja/health.py, e a API REST em
+loja/api_views.py.
 """
 
 from decimal import Decimal
@@ -21,13 +23,12 @@ from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
-from django.db import connection
-from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 from django.db.models import Prefetch, Q
+
 from .cart import Carrinho, unir_carrinho_anonimo
 from .decorators import vendedor_atual, vendedor_required
 from .forms import (
@@ -40,25 +41,6 @@ from .forms import (
     RegistroForm,
 )
 from .models import Cupom, ItemPedido, Pedido, Produto
-
-def healthcheck(request):
-    """
-    Endpoint simples usado pelo HEALTHCHECK do Docker (veja o docker-compose.yml).
-    Faz uma consulta bem leve ao banco (SELECT 1) para garantir que a conexão
-    com o Postgres está funcionando de verdade, não só que o Django "está de pé".
-    """
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute('SELECT 1;')
-        return JsonResponse({'status': 'ok'})
-    except Exception as erro:
-        return JsonResponse({'status': 'erro', 'detalhe': str(erro)}, status=500)
-
-
-from django.db.models import Q
-from django.shortcuts import render
-from .forms import AdicionarAoCarrinhoForm
-from .models import Produto
 
 
 def lista_produtos(request):
@@ -83,8 +65,6 @@ def lista_produtos(request):
         'v_vendedor': termo_vendedor,
     }
     return render(request, 'loja/produto_list.html', contexto)
-
-
 
 
 @require_POST

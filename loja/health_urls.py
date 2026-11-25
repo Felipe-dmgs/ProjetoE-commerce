@@ -9,8 +9,8 @@ loja" em si — é usado pelo Docker para saber se o container está saudável.
 
 from django.urls import path
 
-from . import views
+from . import health
 
 urlpatterns = [
-    path('', views.healthcheck, name='healthcheck'),
+    path('', health.healthcheck, name='healthcheck'),
 ]

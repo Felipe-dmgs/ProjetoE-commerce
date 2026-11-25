@@ -44,7 +44,7 @@ EXPOSE 8000
 # HEALTHCHECK: o Docker roda este comando periodicamente para decidir se o
 # container está "saudável". Aqui, consideramos saudável quando o endpoint
 # /healthz/ responde HTTP 200 (o que só acontece se o Django conseguir
-# consultar o Postgres com sucesso — veja loja/views.py:healthcheck).
+# consultar o Postgres com sucesso — veja loja/health.py).
 #   --interval: de quanto em quanto tempo verifica
 #   --timeout:  quanto tempo espera por resposta antes de considerar falha
 #   --start-period: tempo de "tolerância" inicial (migrations/collectstatic

@@ -72,7 +72,7 @@ padrão vem incluso no projeto (ele fica fora do Git) e não descreve nada da P2
 **Onde.** `loja/views.py` e `README.md`.
 
 **Correção.** Limpar os imports, mover o `healthcheck` para
-`loja/health_urls.py` e reescrever o README com a estrutura atual, a API e o
+`loja/health.py` (a rota continua em `loja/health_urls.py`) e reescrever o README com a estrutura atual, a API e o
 roteiro de isolamento.
 
 ## Acompanhamento
@@ -83,7 +83,7 @@ roteiro de isolamento.
 | 2 | Cupom exclusivo do vendedor | Concluída (etapa 1) |
 | 3 | Estoque acumulado e baixa atômica | Concluída (etapa 2) |
 | 4 | Carrinho preservado no login | Concluída (etapa 2) |
-| 5 | Limpeza de código e README | Pendente |
+| 5 | Limpeza de código e README | Concluída (etapa 4) |
 
 ## API REST
 
