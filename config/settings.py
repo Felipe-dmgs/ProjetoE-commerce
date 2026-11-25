@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',    
     'django.contrib.messages',     
     'django.contrib.staticfiles', 
+    'rest_framework',  # Django REST Framework (API em /api/)
     'loja',
 ]
 
@@ -138,3 +139,12 @@ LOGOUT_REDIRECT_URL = 'loja:lista_produtos'
 
 
 CART_SESSION_ID = 'carrinho'
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+}

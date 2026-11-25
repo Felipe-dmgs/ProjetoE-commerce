@@ -10,3 +10,6 @@ gunicorn>=22.0
 # Serve arquivos estaticos (CSS/JS) diretamente pelo Django/Gunicorn,
 # sem precisar de um servidor separado (Nginx) para isso.
 whitenoise>=6.6
+
+# API REST (Django REST Framework): serializers e generics da Etapa 3
+djangorestframework>=3.15
